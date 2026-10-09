@@ -1,0 +1,75 @@
+[
+  {
+    "utterance": "I'm feeling hot.",
+    "history": [],
+    "vehicle_context": {
+      "temperature": 28
+    },
+    "expected_intent": "control_climate",
+    "expected_action": "turn_on_ac",
+    "expected_ambiguity": false
+  },
+  {
+    "utterance": "Take me to the nearest petrol pump.",
+    "history": [],
+    "vehicle_context": {},
+    "expected_intent": "navigate",
+    "expected_action": "start_navigation",
+    "expected_ambiguity": false
+  },
+  {
+    "utterance": "Play something relaxing.",
+    "history": [],
+    "vehicle_context": {},
+    "expected_intent": "control_media",
+    "expected_action": "play_music",
+    "expected_ambiguity": false
+  },
+  {
+    "utterance": "Call him.",
+    "history": [],
+    "vehicle_context": {},
+    "expected_intent": "make_call",
+    "expected_action": "call_contact",
+    "expected_ambiguity": true
+  },
+  {
+    "utterance": "It's too loud.",
+    "history": [],
+    "vehicle_context": {},
+    "expected_intent": "adjust_volume",
+    "expected_action": "decrease_volume",
+    "expected_ambiguity": false
+  },
+  {
+    "utterance": "What's the weather like there?",
+    "history": [
+      {
+        "role": "user",
+        "content": "I'm driving to Hyderabad."
+      }
+    ],
+    "vehicle_context": {},
+    "expected_intent": "weather_query",
+    "expected_action": "get_weather",
+    "expected_ambiguity": false
+  },
+  {
+    "utterance": "Let's go home.",
+    "history": [],
+    "vehicle_context": {
+      "home_address_available": false
+    },
+    "expected_intent": "navigate",
+    "expected_action": "start_navigation",
+    "expected_ambiguity": true
+  },
+  {
+    "utterance": "What's the capital of France?",
+    "history": [],
+    "vehicle_context": {},
+    "expected_intent": "unknown",
+    "expected_action": null,
+    "expected_ambiguity": false
+  }
+]
