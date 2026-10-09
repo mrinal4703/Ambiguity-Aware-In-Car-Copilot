@@ -1,0 +1,163 @@
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #0b1120;
+  color: #e5e7eb;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.app {
+  min-height: 100vh;
+  padding: 65px 20px;
+}
+
+.container {
+  max-width: 850px;
+  margin: auto;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 35px;
+}
+
+.eyebrow {
+  color: #38bdf8;
+  font-size: 12px;
+  letter-spacing: 2px;
+  font-weight: 700;
+}
+
+h1 {
+  font-size: 42px;
+  margin: 12px 0;
+}
+
+.header p {
+  color: #94a3b8;
+  line-height: 1.6;
+}
+
+.panel {
+  background: #172033;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  padding: 26px;
+  margin-bottom: 22px;
+}
+
+label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 16px;
+  border: 1px solid #475569;
+  border-radius: 10px;
+  background: #0f172a;
+  color: white;
+  font: inherit;
+  outline: none;
+}
+
+textarea:focus {
+  border-color: #38bdf8;
+}
+
+.examples {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin: 15px 0 22px;
+}
+
+.example {
+  background: #273449;
+  color: #cbd5e1;
+  border: 1px solid #475569;
+  border-radius: 20px;
+  padding: 9px 13px;
+  cursor: pointer;
+}
+
+.generate {
+  width: 100%;
+  background: #0284c7;
+  color: white;
+  border: 0;
+  border-radius: 10px;
+  padding: 15px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.generate:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.output h2 {
+  margin-top: 0;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  margin: 20px 0;
+}
+
+.summary div {
+  background: #0f172a;
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.summary span {
+  display: block;
+  color: #94a3b8;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.summary strong {
+  overflow-wrap: anywhere;
+}
+
+pre {
+  background: #0b1120;
+  border-radius: 10px;
+  padding: 18px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.error {
+  color: #fca5a5;
+  background: #451a25;
+  padding: 15px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 550px) {
+  .summary {
+    grid-template-columns: 1fr;
+  }
+
+  h1 {
+    font-size: 32px;
+  }
+}
