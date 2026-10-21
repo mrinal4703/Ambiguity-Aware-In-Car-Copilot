@@ -1,0 +1,24 @@
+name: main-guard
+# Only the `development` branch may be merged into `main`, and only if the tests pass.
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  only-from-development:
+    runs-on: ubuntu-latest
+    steps:
+      - name: PRs into main must come from development
+        run: |
+          if [ "${{ github.head_ref }}" != "development" ]; then
+            echo "Only the development branch may be merged into main (this PR is from '${{ github.head_ref }}')."
+            exit 1
+          fi
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
