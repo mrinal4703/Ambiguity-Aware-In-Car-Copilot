@@ -1,6 +1,6 @@
 """LLM-backed NLU (module 2), optional.
 
-Calls an OpenAI-compatible endpoint (Groq by default, same as `LLM connection/`)
+Calls an OpenAI-compatible endpoint (Groq by default, same as `module_2_nlu/llm_connection/`)
 with JSON mode, then validates the answer against our own schema. Any failure
 falls back to the rule-based parser, so the system never depends on the LLM
 being right or even reachable.

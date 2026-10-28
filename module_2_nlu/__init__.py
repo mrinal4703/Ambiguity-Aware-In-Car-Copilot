@@ -2,7 +2,7 @@
 
 `RuleBasedParser` (offline, deterministic) and `LLMParser` (Groq / OpenAI-compatible,
 validated, falls back to rules) both return an `NLUResult` with weighted goal
-candidates per task. The original FastAPI NLU service lives in `LLM connection/`.
+candidates per task. The original FastAPI NLU service lives in `module_2_nlu/llm_connection/`.
 """
 from .llm_parser import LLMParser, make_parser
 from .rule_parser import RuleBasedParser, classify_confirmation, find_location, parse_task, split_tasks
