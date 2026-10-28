@@ -35,8 +35,21 @@ print(ChargingPlanner.from_env(env).solve(ChargingProblem.from_env(env, 'cuttack
   (28 min), total 55 min, arrive with 67 %".
 - With a 30-minute deadline: no plan; each station is explained.
 
+## Problem-statement additions
+- `near` (hard): with "a charger near my next appointment" only stations within 3 km of the appointment are allowed;
+  distance to it is also a soft cost.
+- Tolls: `avoid_tolls` is soft (+15 instead of +3 for a toll plan); `avoid_tolls_strict` is the hard `no_toll`.
+- `consumption_factor`: energy is scaled by module 3's cautious battery belief, so reach constraints tighten.
+- `availability`: P(station free) from module 3 is a soft penalty, 10 x (1 - p).
+- `concise_reasons`: infeasibility is explained in one line grouped by cause, e.g. "not enough battery to reach the
+  station with the reserve (4 stations); connector not compatible with the car (2 stations)".
+- `action_csp.py`: vehicle-control settings as a one-variable CSP. Hard limits come from module 9 for the situation
+  (windows <= 20 % above 80 km/h, AC 16-30 C); the solution is the closest valid value to the request, so the agent can
+  offer "Open them to 20 % instead?" instead of only refusing.
+
 ## Known limitations / TODO
 - [ ] One charging stop at most.
 
 ## Log (newest first)
+- 2026-10-28 (problem-statement review): near-appointment constraint, soft/strict tolls, belief-aware energy, availability penalty, setting CSP; 20 tests.
 - 2026-10-28: CSP solver, charging problem, explanations; 14 tests.
