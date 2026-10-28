@@ -37,7 +37,7 @@ Details, inputs/outputs and status: [docs/MODULES.md](docs/MODULES.md). Each mod
 Shared data shapes are in `contracts/`.
 
 ## Run (fresh clone)
-Requires Python 3.10+ (CI uses 3.12) and, for the dashboard only, Node.js 18+.
+Requires Python 3.10+ (CI uses 3.12) and, for the dashboard only, Node.js 22 LTS (or 20.19+; older versions fail with "Cannot find native binding").
 ```bash
 git clone -b development https://github.com/mrinal4703/Ambiguity-Aware-In-Car-Copilot
 cd Ambiguity-Aware-In-Car-Copilot
