@@ -1,0 +1,22 @@
+{"utterance": "Set the temperature to 22 degrees.", "history": [], "vehicle_context": {}, "expected_intent": "control_climate", "expected_action": "adjust_temperature", "expected_ambiguity": false}
+{"utterance": "It's getting hot in here.", "history": [], "vehicle_context": {"temperature": 30}, "expected_intent": "control_climate", "expected_action": "turn_on_ac", "expected_ambiguity": false}
+{"utterance": "Make it 2 degrees colder.", "history": [], "vehicle_context": {"temperature": 24}, "expected_intent": "control_climate", "expected_action": "adjust_temperature", "expected_ambiguity": false}
+{"utterance": "Turn off the AC.", "history": [], "vehicle_context": {}, "expected_intent": "control_climate", "expected_action": "turn_off_ac", "expected_ambiguity": false}
+{"utterance": "Take me to the airport.", "history": [], "vehicle_context": {}, "expected_intent": "navigate", "expected_action": "start_navigation", "expected_ambiguity": false}
+{"utterance": "Cancel the navigation.", "history": [], "vehicle_context": {}, "expected_intent": "navigate", "expected_action": "cancel_navigation", "expected_ambiguity": false}
+{"utterance": "Go there instead.", "history": [], "vehicle_context": {}, "expected_intent": "navigate", "expected_action": "change_destination", "expected_ambiguity": true}
+{"utterance": "Play some jazz.", "history": [], "vehicle_context": {}, "expected_intent": "control_media", "expected_action": "play_music", "expected_ambiguity": false}
+{"utterance": "Skip this song.", "history": [], "vehicle_context": {}, "expected_intent": "control_media", "expected_action": "skip_track", "expected_ambiguity": false}
+{"utterance": "Turn it down a bit.", "history": [], "vehicle_context": {}, "expected_intent": "adjust_volume", "expected_action": "decrease_volume", "expected_ambiguity": false}
+{"utterance": "Mute the audio.", "history": [], "vehicle_context": {}, "expected_intent": "adjust_volume", "expected_action": "mute_audio", "expected_ambiguity": false}
+{"utterance": "Call Mom.", "history": [], "vehicle_context": {}, "expected_intent": "make_call", "expected_action": "call_contact", "expected_ambiguity": false}
+{"utterance": "Call him.", "history": [], "vehicle_context": {}, "expected_intent": "make_call", "expected_action": "call_contact", "expected_ambiguity": true}
+{"utterance": "Find a pharmacy nearby.", "history": [], "vehicle_context": {}, "expected_intent": "search_poi", "expected_action": "search_nearby_places", "expected_ambiguity": false}
+{"utterance": "Find somewhere to stop.", "history": [], "vehicle_context": {}, "expected_intent": "search_poi", "expected_action": "search_nearby_places", "expected_ambiguity": true}
+{"utterance": "Will it rain later?", "history": [], "vehicle_context": {}, "expected_intent": "weather_query", "expected_action": "get_weather", "expected_ambiguity": false}
+{"utterance": "How much battery do I have left?", "history": [], "vehicle_context": {"battery_percent": 35}, "expected_intent": "vehicle_information", "expected_action": "get_vehicle_information", "expected_ambiguity": false}
+{"utterance": "What's my next meeting?", "history": [], "vehicle_context": {}, "expected_intent": "calendar_query", "expected_action": "get_calendar_events", "expected_ambiguity": false}
+{"utterance": "I'm running low on battery.", "history": [], "vehicle_context": {"battery_percent": 12}, "expected_intent": "manage_charging", "expected_action": "find_charging_station", "expected_ambiguity": false}
+{"utterance": "Tell Priya I'm running late.", "history": [], "vehicle_context": {}, "expected_intent": "send_message", "expected_action": "send_text_message", "expected_ambiguity": false}
+{"utterance": "Tell them I may be late.", "history": [], "vehicle_context": {}, "expected_intent": "send_message", "expected_action": "send_text_message", "expected_ambiguity": true}
+{"utterance": "Do the thing.", "history": [], "vehicle_context": {}, "expected_intent": "unknown", "expected_action": null, "expected_ambiguity": true}

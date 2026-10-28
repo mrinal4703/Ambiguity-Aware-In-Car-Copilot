@@ -36,7 +36,7 @@ app.add_middleware(
 # Initialize modules
 context_manager = ContextManager()
 intent_parser = IntentParser()
-copilot_orchestrator = CopilotOrchestrator()
+copilot_orchestrator = CopilotOrchestrator(nlu=intent_parser)
 
 
 # Request schemas
@@ -90,6 +90,15 @@ def get_request_context(
     return history, vehicle_context
 
 
+def _flatten_result(result: dict) -> dict:
+    """Unwrap {intent_result: {...}} or {intent: {...}} into the intent dict."""
+    for key in ("intent_result", "intent"):
+        inner = result.get(key)
+        if isinstance(inner, dict):
+            return inner
+    return result
+
+
 # Store conversation history and vehicle context
 def save_interaction(
     session_id: str,
@@ -106,7 +115,9 @@ def save_interaction(
     context_manager.add_message(
         session_id,
         "assistant",
-        json.dumps(result),
+        # Store a flat record so the reference resolver can find
+        # action_candidates at the top level (fix B2).
+        json.dumps(_flatten_result(result)),
     )
 
     context_manager.update_vehicle_context(
