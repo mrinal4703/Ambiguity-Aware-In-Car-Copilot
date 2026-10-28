@@ -1,16 +1,24 @@
-# React + Vite
+# Frontend: copilot dashboard   (module 10, owner: Souymadeep)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + Vite dashboard with two tabs:
 
-Currently, two official plugins are available:
+- **Integrated copilot**: talks to the module 10 API (`module_10_integration/api.py`). Shows the conversation
+  (questions, confirmations with Yes/No buttons, blocked / deferred / refused replies), the candidate
+  interpretations with probabilities, the plan, the tool calls, the safety verdict, the vehicle state and a map with
+  the road network, charging stations (green available, red unavailable), the car and the active route.
+  A scenario preset (default, low_battery, storm, highway, ...) and a configuration (full_fixed, full_rl, ablations)
+  can be chosen and reset at any time.
+- **LLM NLU demo**: the earlier page for the `LLM connection/` backend (port 8000).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Run
+```bash
+# terminal 1, repository root
+pip install -r requirements-dev.txt
+uvicorn module_10_integration.api:app --port 8001
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+# terminal 2
+cd frontend
+npm install
+npm run dev            # http://localhost:5173
+```
+Set `VITE_COPILOT_API` to point at a different API URL. `npm run build` produces `dist/`.
