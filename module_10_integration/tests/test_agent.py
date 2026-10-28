@@ -112,3 +112,23 @@ def test_driving_load_raises_question_cost():
     from module_1_simulator.initial_states import make_state
     hw = CopilotAgent(CarEnvironment(make_state("highway")))
     assert hw.driving_difficulty() == "high" and hw._question_cost() > 0
+
+
+def test_malformed_events_are_rejected_clearly():
+    import pytest
+    a = CopilotAgent()
+    for kind, kw, msg in [("station_offline", {"station": "nope"}, "unknown station"),
+                          ("road_closed", {"a": "home", "b": "nope"}, "no open road"),
+                          ("drain", {"factor": 50}, "factor must be"),
+                          ("traffic", {"a": "home"}, "needs"),
+                          ("flood", {}, "unknown event")]:
+        with pytest.raises(ValueError, match=msg):
+            a.event(kind, **kw)
+    assert a.event("road_closed", a="home", b="kiit_square").kind == "answer"
+
+
+def test_stop_at_current_destination_is_not_added_twice():
+    a = CopilotAgent()
+    for u in ["Take me to KIIT Square", "I need tea", "a cafe", "yes"]:
+        t = a.handle(u)
+    assert t.kind == "done" and "via" not in t.reply and a.env.navigation["waypoints"] == []

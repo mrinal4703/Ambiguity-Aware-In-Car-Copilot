@@ -128,6 +128,7 @@ class CopilotAgent:
     def event(self, kind: str, **kw: Any) -> Turn:
         """External change: road_closed(a, b) | station_offline(station) | drain(factor) | traffic(a, b, factor)."""
         env = self.env
+        self._check_event(kind, kw)
         if kind == "road_closed":
             env.close_road(kw["a"], kw["b"])
             self.world.observe_closed(kw["a"], kw["b"])
@@ -150,6 +151,23 @@ class CopilotAgent:
         else:
             raise ValueError(f"unknown event {kind}")
         return self._record(f"[event {kind}]", self.check_trip(note))
+
+    _EVENT_ARGS = {"road_closed": ("a", "b"), "station_offline": ("station",), "drain": ("factor",),
+                   "traffic": ("a", "b", "factor")}
+
+    def _check_event(self, kind: str, kw: dict[str, Any]) -> None:
+        """Reject malformed events with a clear message before anything changes."""
+        if kind not in self._EVENT_ARGS:
+            raise ValueError(f"unknown event '{kind}' (use one of: {', '.join(self._EVENT_ARGS)})")
+        missing = [k for k in self._EVENT_ARGS[kind] if kw.get(k) is None]
+        if missing:
+            raise ValueError(f"event '{kind}' needs: {', '.join(missing)}")
+        if "station" in kw and self.env.station(kw["station"]) is None:
+            raise ValueError(f"unknown station '{kw['station']}'")
+        if "a" in kw and not any(r["to"] == kw["b"] for r in self.env.neighbours(kw["a"])):
+            raise ValueError(f"no open road between '{kw['a']}' and '{kw['b']}'")
+        if "factor" in kw and not 0.1 <= float(kw["factor"]) <= 10:
+            raise ValueError("factor must be between 0.1 and 10")
 
     def _record(self, user: str, turn: Turn) -> Turn:
         turn.user = user

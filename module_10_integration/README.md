@@ -2,7 +2,7 @@
 
 ## What this module does
 Wires modules 1-9 into one copilot, runs the scenario suite with a simulated driver, computes Pass@3 / Pass^3 and
-the ablation table from the PDF, and serves the agent over HTTP for the React dashboard (`frontend/`).
+the ablation table from the PDF, and serves the agent over HTTP for the React dashboard (`module_10_integration/frontend/`).
 
 ## Inputs and outputs
 - Takes in: driver utterances (`CopilotAgent.handle(text)`), an `AgentConfig`.
@@ -85,6 +85,8 @@ Reading the table:
 - [ ] Experiments use the rule-based parser for reproducibility; the LLM parser can be enabled with `parser="llm"`.
 
 ## Log (newest first)
+- 2026-10-28 (layout): moved the dashboard from `frontend/` into `module_10_integration/frontend/`; events with
+  unknown stations, roads or bad factors are rejected with a clear message; 14 tests.
 - 2026-10-28 (problem-statement review): driving loop and events, replanning, risk-aware questions, preference
   learning, 15 new scenarios, route quality / constraint satisfaction / policy compliance metrics, dashboard; 12 tests.
 - 2026-10-28: agent, configs, scenario suite, metrics, experiments, API, dashboard; 9 tests.

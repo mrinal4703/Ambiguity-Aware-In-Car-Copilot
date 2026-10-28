@@ -8,7 +8,7 @@ React + Vite dashboard with two tabs:
   the road network, charging stations (green available, red unavailable), the car and the active route.
   A scenario preset (default, low_battery, storm, highway, ...) and a configuration (full_fixed, full_rl, ablations)
   can be chosen and reset at any time.
-- **LLM NLU demo**: the earlier page for the `LLM connection/` backend (port 8000).
+- **LLM NLU demo**: the earlier page for the `module_2_nlu/llm_connection/` backend (port 8000).
 
 ## Run
 ```bash
@@ -17,7 +17,7 @@ pip install -r requirements-dev.txt
 uvicorn module_10_integration.api:app --port 8001
 
 # terminal 2
-cd frontend
+cd module_10_integration/frontend
 npm install
 npm run dev            # http://localhost:5173
 ```
