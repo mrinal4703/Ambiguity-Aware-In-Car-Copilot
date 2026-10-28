@@ -17,6 +17,9 @@ class RewardConfig:
     context_cost: float = -0.5          # small cost of a context lookup
     wasted_step: float = -1.0
     timeout: float = -5.0
+    # problem statement: "rewards ... penalize ... distraction, or delay"
+    distraction_cost: float = -1.5      # extra cost of a question while driving is demanding
+    delay_cost: float = -0.3            # every extra turn before the task is resolved
 
     def with_(self, **kw: float) -> "RewardConfig":
         return replace(self, **kw)

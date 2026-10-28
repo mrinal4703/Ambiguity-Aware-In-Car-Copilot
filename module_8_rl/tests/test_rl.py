@@ -16,8 +16,11 @@ def test_rewards_follow_table():
     assert env.step(Act.EXECUTE, sit([1.0])).reward == 10
     assert env.step(Act.EXECUTE, sit([0.6, 0.4], true="c1")).reward == -5
     assert env.step(Act.EXECUTE, sit([1.0], safety="forbidden")).reward == -20
-    assert env.step(Act.CLARIFY, sit([0.5, 0.5])).reward == 2
-    assert env.step(Act.CLARIFY, sit([1.0])).reward == -2
+    d = env.rewards.delay_cost
+    assert env.step(Act.CLARIFY, sit([0.5, 0.5])).reward == pytest.approx(2 + d)
+    assert env.step(Act.CLARIFY, sit([1.0])).reward == pytest.approx(-2 + d)
+    assert env.step(Act.CLARIFY, sit([0.5, 0.5], difficulty="high")).reward == \
+        pytest.approx(2 + d + env.rewards.distraction_cost)
     assert env.step(Act.REFUSE, sit([1.0], safety="forbidden")).reward == 8
     assert env.step(Act.DELAY, sit([1.0], safety="deferrable")).reward == 8
     assert env.step(Act.SUGGEST_ALTERNATIVE, sit([1.0], supported=False)).reward == 8
@@ -40,7 +43,8 @@ def test_safety_mask_and_fallback():
 
 def test_features_are_discrete():
     f = features(sit([0.55, 0.45]))
-    assert f == (1, 0, 2, 0, 1, 1, 0)
+    assert f == (1, 0, 2, 0, 1, 1, 0, 0, 0)
+    assert features(sit([0.55, 0.45], difficulty="high", battery_low=True))[7:9] == (2, 1)
 
 
 def test_agent_never_executes_masked_actions():
@@ -82,3 +86,15 @@ def test_save_load(tmp_path, agent):
     ag2 = QAgent.load(p)
     s = sit([0.4, 0.35, 0.25])
     assert ag2.decide(s) == agent.decide(s)
+
+
+def test_demanding_driving_reduces_questions(agent):
+    from module_8_rl.environment import DecisionEnv as DE
+    def q_rate(diff):
+        env = DE(seed=7, p_high_difficulty=1.0 if diff == "high" else 0.0)
+        asked = 0
+        for _ in range(800):
+            s = env.reset()
+            asked += agent.decide(s) == Act.CLARIFY
+        return asked / 800
+    assert q_rate("high") < q_rate("low")

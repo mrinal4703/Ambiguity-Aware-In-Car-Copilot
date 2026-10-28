@@ -54,7 +54,7 @@ def evaluate_policy(policy, rewards: RewardConfig = DEFAULT_REWARDS, episodes: i
                    m("questions"), m("unnecessary"), m("gate"), m("wrong"))
 
 
-def train_agent(rewards: RewardConfig = DEFAULT_REWARDS, episodes: int = 80000, seed: int = 0) -> QAgent:
+def train_agent(rewards: RewardConfig = DEFAULT_REWARDS, episodes: int = 150000, seed: int = 0) -> QAgent:
     agent = QAgent(seed=seed)
     agent.train(DecisionEnv(rewards=rewards, seed=seed + 1000), episodes)
     agent.epsilon = 0.0
@@ -62,14 +62,14 @@ def train_agent(rewards: RewardConfig = DEFAULT_REWARDS, episodes: int = 80000, 
     return agent
 
 
-def compare(rewards: RewardConfig = DEFAULT_REWARDS, train_episodes: int = 80000,
+def compare(rewards: RewardConfig = DEFAULT_REWARDS, train_episodes: int = 150000,
             eval_episodes: int = 3000) -> list[Metrics]:
     agent = train_agent(rewards, train_episodes)
     return [evaluate_policy(p, rewards, eval_episodes) for p in baselines()] + \
            [evaluate_policy(agent, rewards, eval_episodes)]
 
 
-def sensitivity(train_episodes: int = 50000, eval_episodes: int = 2000) -> dict[str, list[Metrics]]:
+def sensitivity(train_episodes: int = 100000, eval_episodes: int = 2000) -> dict[str, list[Metrics]]:
     out = {}
     for name, cfg in SENSITIVITY.items():
         agent = train_agent(cfg, train_episodes)
