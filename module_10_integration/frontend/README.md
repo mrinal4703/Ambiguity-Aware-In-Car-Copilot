@@ -11,6 +11,9 @@ React + Vite dashboard with two tabs:
 - **LLM NLU demo**: the earlier page for the `module_2_nlu/llm_connection/` backend (port 8000).
 
 ## Run
+Needs Node.js 22 LTS (or 20.19+). On older Node, `npm run dev` fails with "Cannot find native binding": update Node,
+then delete `node_modules` and run `npm install` again.
+
 ```bash
 # terminal 1, repository root
 pip install -r requirements-dev.txt
