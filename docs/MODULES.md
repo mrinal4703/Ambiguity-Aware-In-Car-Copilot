@@ -8,7 +8,7 @@ Data shapes named below are drafts in `contracts/`.
 | # | Module | Owner | Takes in | Hands on | Folder |
 |---|---|---|---|---|---|
 | 1 | Simulator and environment | Ramesh | tool calls | vehicle state, calendar, contacts, charging DB, `ToolSpec`s | `module_1_simulator/` |
-| 2 | NLU and LLM | Arjo | utterance, history | structured intent | `module_2_nlu/`, `LLM connection/` |
+| 2 | NLU and LLM | Arjo | utterance, history | structured intent | `module_2_nlu/` (LLM service in `module_2_nlu/llm_connection/`) |
 | 3 | Uncertainty estimation | Swastika | intent, context | `BeliefState` | `module_3_uncertainty/` |
 | 4 | EVPI clarification | Mrinal | `BeliefState` | `ClarificationDecision` | `module_4_evpi/` |
 | 5 | Search and route optimization | Sistu Neha | origin, destination, graph | `RouteOption`s | `module_5_search/` |
@@ -16,7 +16,7 @@ Data shapes named below are drafts in `contracts/`.
 | 7 | Sequential planning | Dipanjana | goal, feasible options | `Plan` | `module_7_planning/` |
 | 8 | Reinforcement learning | Jana | belief features, state | chosen action | `module_8_rl/` |
 | 9 | Safety and policy | Nishkarsh | `Plan` / action | `SafetyVerdict` | `module_9_safety/` |
-| 10 | Integration and evaluation | Souymadeep | everything | orchestrator, scenarios, metrics | `module_10_integration/` |
+| 10 | Integration and evaluation | Souymadeep | everything | orchestrator, scenarios, metrics | `module_10_integration/` (dashboard in `module_10_integration/frontend/`) |
 
 ## Suggested first deliverable per module
 These are starting suggestions drawn from the project PDF; owners should refine them in their own README.
@@ -37,7 +37,7 @@ Updated by the maintainer from each module README.
 
 | # | Module | Owner | Status | Tests | Key result | Last checked |
 |---|---|---|---|---|---|---|
-| 1 | Simulator | Ramesh | done | 21 | 19 tools + road/battery events, drive(), 11 presets | 2026-10-28 |
+| 1 | Simulator | Ramesh | done | 22 | 19 tools + road/battery events, drive(), 11 presets | 2026-10-28 |
 | 2 | NLU | Arjo | done | 35 + 7 | PDF examples, soft/strict tolls, grounded responder | 2026-10-28 |
 | 3 | Uncertainty | Swastika | done | 17 | intent + world beliefs, preference learning | 2026-10-28 |
 | 4 | EVPI | Mrinal | done | 35 | success .983 with .729 questions/dialogue; risk-aware | 2026-10-28 |
@@ -46,4 +46,4 @@ Updated by the maintainer from each module README.
 | 7 | Planning | Dipanjana | done | 19 | plans, verification, trip monitor replanning | 2026-10-28 |
 | 8 | RL | Jana | done | 10 | Q-learning reward 9.60 vs best baseline 9.27 | 2026-10-28 |
 | 9 | Safety | Nishkarsh | done | 22 | policy gate, modify-instead-of-refuse | 2026-10-28 |
-| 10 | Integration | Souymadeep | done | 12 | full system 45/45 scenarios, Pass^3 1.00 | 2026-10-28 |
+| 10 | Integration | Souymadeep | done | 14 | full system 45/45 scenarios, Pass^3 1.00 | 2026-10-28 |
