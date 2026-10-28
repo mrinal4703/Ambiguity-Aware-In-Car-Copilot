@@ -52,6 +52,7 @@ class ExecutionReport:
     confirmed: set[str] = field(default_factory=set)
     pending: PlanStep | None = None
     pending_params: dict[str, Any] = field(default_factory=dict)
+    overrides: dict[str, dict[str, Any]] = field(default_factory=dict)   # safe modifications (step id -> params)
     verdict: SafetyVerdict | None = None
     replans: int = 0
     message: str = ""
@@ -101,6 +102,9 @@ class Executor:
             rep.pending = None
             return rep
         rep.confirmed.add(rep.pending.id)
+        mod = getattr(rep.verdict, "modified_params", None) if rep.verdict else None
+        if mod:   # the driver accepted the safer, modified setting
+            rep.overrides[rep.pending.id] = dict(mod)
         rep.pending, rep.status = None, "running"
         return self._run(rep)
 
@@ -117,7 +121,7 @@ class Executor:
                 rep.status, rep.message = "failed", f"{step.action}: preconditions not met {missing}"
                 return rep
             try:
-                params = self._resolve(step.params, rep.blackboard)
+                params = {**self._resolve(step.params, rep.blackboard), **rep.overrides.get(step.id, {})}
             except KeyError as e:
                 rep.status, rep.message = "failed", f"{step.action}: missing input {e}"
                 return rep
@@ -251,7 +255,9 @@ class Executor:
 
     # ------------------------------------------------------- internal actions
     def _i_check_range(self, p: dict[str, Any], rep: ExecutionReport) -> dict[str, Any]:
-        f = check_direct(self.env, p["destination"], rep.context.get("deadline_min"))
+        kw = {"reserve_pct": rep.context["reserve_pct"]} if "reserve_pct" in rep.context else {}
+        f = check_direct(self.env, p["destination"], rep.context.get("deadline_min"),
+                         consumption_factor=rep.context.get("consumption_factor", 1.0), **kw)
         if "route_exists" in f.violated_constraints:
             raise StepFailed(f.notes)
         if "reach_destination" in f.violated_constraints:
@@ -263,6 +269,12 @@ class Executor:
         ids = {s["id"] for s in found} if found else None
         pb = ChargingProblem.from_env(self.env, p.get("destination"), p.get("deadline_min"),
                                       avoid_tolls=bool(p.get("avoid_tolls")),
+                                      avoid_tolls_strict=bool(p.get("avoid_tolls_strict")),
+                                      near=p.get("near"),
+                                      consumption_factor=rep.context.get("consumption_factor", 1.0),
+                                      availability=dict(rep.context.get("station_availability") or {}),
+                                      **({"reserve_pct": rep.context["reserve_pct"]} if "reserve_pct" in rep.context
+                                         else {}),
                                       exclude=tuple(set(p.get("exclude") or ()) |
                                                     set(rep.context.get("exclude_stations", ()))))
         if ids is not None:
@@ -304,3 +316,22 @@ class Executor:
 
     def _i_compose_answer(self, p: dict[str, Any], rep: ExecutionReport) -> dict[str, Any]:
         return {"text": p.get("text", "")}
+
+    def _i_estimate_traffic(self, p: dict[str, Any], rep: ExecutionReport) -> dict[str, Any]:
+        """No live traffic service: estimate from the map (time-of-day level, typical route time)."""
+        route = self.env.navigation.get("route") or {}
+        return {"estimated": True, "level": self.env.driving.get("traffic", "unknown"),
+                "route_time_min": route.get("time_min"), "incidents": []}
+
+    def _i_estimate_eta(self, p: dict[str, Any], rep: ExecutionReport) -> dict[str, Any]:
+        nav = self.env.navigation
+        if not nav.get("active") or not nav.get("route"):
+            raise StepFailed("there is no active navigation")
+        t = float(nav["route"]["time_min"])
+        tt = rep.context.get("travel_time") or {}
+        mean, p90 = float(tt.get("mean", t)), float(tt.get("p90", t))
+        from module_1_simulator.environment import hhmm, minutes
+        now = minutes(self.env.driving["time"])
+        return {"destination": nav["destination"], "destination_name": self.env.location_name(nav["destination"]),
+                "minutes": round(mean), "minutes_p90": round(p90), "arrival": hhmm(now + mean),
+                "arrival_p90": hhmm(now + p90)}
