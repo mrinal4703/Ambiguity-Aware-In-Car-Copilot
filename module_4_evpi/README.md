@@ -1,4 +1,4 @@
-# Module 4: EVPI clarification   (owner: Mrinal, tentative)
+# Module 4: EVPI clarification   (owner: Mrinal)
 
 ## What this module does
 Given a `BeliefState` (candidate tool calls with probabilities from module 3), decide whether to
@@ -26,7 +26,26 @@ use the same machinery as "which contact" questions.
 ```bash
 python -m pytest module_4_evpi
 python -m module_4_evpi.demo
+python -m module_4_evpi.evaluate     # EVPI vs baselines on simulated dialogues
 ```
+
+## Extensions
+- `utility_evpi.py`: utility-based EVPI, E[max_a U(a, answer)] - max_a E[U(a)], with a cost for wrong actions, so a
+  question is only worth asking if the answer can change the chosen action.
+- `answer_matching.py`: matches free-text answers to candidate values (exact, alias, 5-letter stem prefix, "the
+  first one"); unmatched answers return `matched=False` and go back to NLU.
+- `baselines.py`: always-execute, always-clarify, fixed-threshold.
+
+## Results (`python -m module_4_evpi.evaluate`)
+| policy | success | questions / dialogue | useful | unneeded | internal lookups |
+|---|---|---|---|---|---|
+| always_execute | 0.661 | 0.000 | 0.000 | 0.000 | 0.000 |
+| always_clarify | 1.000 | 1.101 | 0.938 | 0.189 | 0.000 |
+| fixed_threshold | 0.979 | 0.910 | 0.835 | 0.000 | 0.000 |
+| evpi | 0.983 | 0.729 | 0.729 | 0.000 | 0.135 |
+
+EVPI keeps almost all of always-clarify's success while asking about a third fewer questions, none of them
+unnecessary, because it looks up resolvable parameters itself first.
 
 ## Assumptions and limitations
 - Probabilities in the demo are hypothetical (from the PDF's tea example), not measured.
@@ -37,13 +56,14 @@ python -m module_4_evpi.demo
 - Safety is not considered here: module 9 still validates whatever is proceeded with.
 
 ## TODO
-- [ ] Agree the `BeliefState` fields with Swastika (module 3)
-- [ ] Agree the feature list with Jana (module 8)
-- [ ] Hook into the orchestrator's ambiguity step (coordinate with Arjo)
+- [x] Agree the `BeliefState` fields with module 3
+- [x] Agree the feature list with module 8 (`belief_features`)
+- [x] Hook into the orchestrator (module 10)
+- [x] Utility-based EVPI variant
+- [x] Evaluation vs always-ask and fixed-threshold baselines
 - [ ] LLM phraser for natural question wording
 - [ ] Noisy-answer model (user may answer unreliably)
-- [ ] Utility-based EVPI variant and comparison
-- [ ] Evaluation vs always-ask and fixed-threshold baselines on a scenario set
 
 ## Log (newest first)
+- 2026-10-28: utility EVPI, answer matching, baselines, evaluation; 32 tests.
 - 2026-10-20: starter implementation, 18 tests, demo.

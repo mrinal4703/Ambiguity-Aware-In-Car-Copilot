@@ -8,15 +8,15 @@ Data shapes named below are drafts in `contracts/`.
 | # | Module | Owner | Takes in | Hands on | Folder |
 |---|---|---|---|---|---|
 | 1 | Simulator and environment | Ramesh | tool calls | vehicle state, calendar, contacts, charging DB, `ToolSpec`s | `module_1_simulator/` |
-| 2 | NLU and LLM | Arjo | utterance, history | structured intent | `LLM connection/` |
+| 2 | NLU and LLM | Arjo | utterance, history | structured intent | `module_2_nlu/`, `LLM connection/` |
 | 3 | Uncertainty estimation | Swastika | intent, context | `BeliefState` | `module_3_uncertainty/` |
-| 4 | EVPI clarification | Mrinal / Nishkarsh (TBD) | `BeliefState` | `ClarificationDecision` | `module_4_evpi/` |
+| 4 | EVPI clarification | Mrinal | `BeliefState` | `ClarificationDecision` | `module_4_evpi/` |
 | 5 | Search and route optimization | Sistu Neha | origin, destination, graph | `RouteOption`s | `module_5_search/` |
 | 6 | CSP and feasibility | Prasanna | `RouteOption`s, vehicle state | `FeasibilityResult`s | `module_6_csp/` |
 | 7 | Sequential planning | Dipanjana | goal, feasible options | `Plan` | `module_7_planning/` |
 | 8 | Reinforcement learning | Jana | belief features, state | chosen action | `module_8_rl/` |
-| 9 | Safety and policy | Nishkarsh / Mrinal (TBD) | `Plan` / action | `SafetyVerdict` | `module_9_safety/` |
-| 10 | Integration and evaluation | TBD | everything | orchestrator, scenarios, metrics | `module_10_integration/` |
+| 9 | Safety and policy | Nishkarsh | `Plan` / action | `SafetyVerdict` | `module_9_safety/` |
+| 10 | Integration and evaluation | Souymadeep | everything | orchestrator, scenarios, metrics | `module_10_integration/` |
 
 ## Suggested first deliverable per module
 These are starting suggestions drawn from the project PDF; owners should refine them in their own README.
@@ -35,6 +35,15 @@ These are starting suggestions drawn from the project PDF; owners should refine 
 ## Status
 Updated by the maintainer from each module README.
 
-| # | Status | Last checked |
-|---|---|---|
-| 1-10 | see `car_copilot_module_plan.xlsx` | |
+| # | Module | Owner | Status | Tests | Key result | Last checked |
+|---|---|---|---|---|---|---|
+| 1 | Simulator | Ramesh | done | 15 | 19 tools, 8 presets, dynamic events | 2026-10-28 |
+| 2 | NLU | Arjo | done | 27 + 7 | rule + LLM parser, LLM connection fixed | 2026-10-28 |
+| 3 | Uncertainty | Swastika | done | 12 | context weights, calibration, lookups | 2026-10-28 |
+| 4 | EVPI | Mrinal | done | 32 | success .983 with .729 questions/dialogue | 2026-10-28 |
+| 5 | Search | Sistu Neha | done | 11 | A* = UCS cost on 272 pairs, fewer expansions | 2026-10-28 |
+| 6 | CSP | Prasanna | done | 14 | charging plans + per-station explanations | 2026-10-28 |
+| 7 | Planning | Dipanjana | done | 13 | plans, verification, replanning | 2026-10-28 |
+| 8 | RL | Jana | done | 9 | Q-learning reward 9.98 vs best baseline 9.35 | 2026-10-28 |
+| 9 | Safety | Nishkarsh | done | 18 | capability, policy gate, verifier | 2026-10-28 |
+| 10 | Integration | Souymadeep | done | 9 | full system 30/30 scenarios, Pass^3 1.00 | 2026-10-28 |
