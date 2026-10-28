@@ -230,7 +230,9 @@ class Executor:
             ok = env.navigation["active"] and env.navigation["destination"] == env.resolve_node(params["destination"])
             return ok, "" if ok else "navigation not active"
         if tool == "add_waypoint":
-            ok = params["waypoint"] in env.navigation["waypoints"]
+            wp = params["waypoint"]
+            ok = wp in env.navigation["waypoints"] or (
+                env.station(wp) is None and env.resolve_node(wp) == env.navigation["destination"])
             return ok, "" if ok else "waypoint missing from route"
         if tool == "send_message":
             ok = bool(env.state["messages_sent"]) and env.state["messages_sent"][-1]["to"] == params["contact_id"]
