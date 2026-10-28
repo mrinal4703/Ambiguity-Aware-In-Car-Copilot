@@ -42,10 +42,27 @@ def _no_windows_feature(s: dict[str, Any]) -> None:
     s["vehicle"]["features"].remove("windows")
 
 
+def _traffic_offline(s: dict[str, Any]) -> None:
+    s["vehicle"]["features"].remove("live_traffic")   # the live traffic service is disconnected
+
+
+def _conflicting_calendar(s: dict[str, Any]) -> None:
+    # a second commitment overlapping the 15:00 project review
+    s["calendar"].append({"id": "ev_dentist", "title": "Dentist appointment", "start": "15:00", "end": "15:30",
+                          "location": "old_town", "organizer": "c_mom", "attendees": []})
+
+
+def _battery_drain(s: dict[str, Any]) -> None:
+    # the battery drains 1.8x faster than the car's consumption model expects (cold pack, headwind, ...)
+    s["vehicle"]["actual_consumption_factor"] = 1.8
+    s["vehicle"]["battery_pct"] = 28.0   # enough for the trip on paper, not at 1.8x
+
+
 PRESETS: dict[str, Callable[[dict[str, Any]], None]] = {
     "default": _default, "low_battery": _low_battery, "critical_battery": _critical_battery,
     "highway": _highway, "parked": _parked, "storm": _storm, "cool_cabin": _cool_cabin,
-    "no_windows_feature": _no_windows_feature,
+    "no_windows_feature": _no_windows_feature, "traffic_offline": _traffic_offline,
+    "conflicting_calendar": _conflicting_calendar, "battery_drain": _battery_drain,
 }
 
 

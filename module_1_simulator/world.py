@@ -159,7 +159,7 @@ DEFAULT_VEHICLE: dict[str, Any] = {
     "media": {"playing": False, "source": None},
     # Features the simulated car really has. Anything else is a missing capability.
     "features": ["navigation", "climate", "windows", "messaging", "calls", "media",
-                 "charging_search", "calendar", "reminders", "poi_search", "video"],
+                 "charging_search", "calendar", "reminders", "poi_search", "video", "live_traffic"],
 }
 
 DEFAULT_DRIVING_CONTEXT: dict[str, Any] = {

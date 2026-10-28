@@ -27,6 +27,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {s.name: s for s in [
     ToolSpec(name="search_poi", description="Points of interest by category near a location.",
              parameters={"category": "cafe|rest_area|pharmacy|hospital", "near": "location id"},
              required=["category"]),
+    ToolSpec(name="get_traffic", description="Live traffic level and incidents along the active route."),
     ToolSpec(name="calculate_route", description="Route between two locations, optional waypoints.",
              parameters={"origin": "location id", "destination": "location id",
                          "waypoints": "list[location id]", "preference": "fastest|shortest|eco|no_toll"},
@@ -63,7 +64,7 @@ TOOL_FEATURE: dict[str, str] = {
     "get_vehicle_state": "", "get_current_location": "", "get_driving_context": "",
     "get_calendar_events": "calendar", "get_contacts": "calls",
     "search_charging_stations": "charging_search", "get_station_status": "charging_search",
-    "search_poi": "poi_search", "calculate_route": "navigation", "set_navigation": "navigation",
+    "search_poi": "poi_search", "get_traffic": "live_traffic", "calculate_route": "navigation", "set_navigation": "navigation",
     "add_waypoint": "navigation", "cancel_navigation": "navigation", "send_message": "messaging",
     "make_call": "calls", "add_reminder": "reminders", "control_ac": "climate",
     "control_windows": "windows", "play_media": "media", "play_video": "video",
@@ -73,4 +74,5 @@ TOOL_FEATURE: dict[str, str] = {
 UNSUPPORTED_FEATURES: dict[str, str] = {
     "seat_massage": "seat massage", "sunroof": "sunroof control", "autopilot": "self-driving / autopilot",
     "heated_steering": "heated steering wheel", "seat_heating": "seat heating",
+    "parking_assist": "parking assist", "lane_assist": "lane keeping assist",
 }
