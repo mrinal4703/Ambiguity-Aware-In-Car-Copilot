@@ -339,6 +339,11 @@ class CarEnvironment:
             raise ToolError(f"charging station '{waypoint}' is currently unavailable")
         if st is None and self.resolve_node(waypoint) is None:
             raise ToolError(f"unknown waypoint '{waypoint}'")
+        if waypoint in nav["waypoints"] or (st is None and self.resolve_node(waypoint) == nav["destination"]):
+            # already on the trip: do not add a duplicate stop (a charging station stays a stop, so the car charges)
+            route = nav["route"] or {}
+            return {"waypoints": list(nav["waypoints"]), "eta_min": route.get("time_min"),
+                    "distance_km": route.get("distance_km"), "route": route, "already_on_route": True}
         wps = [*nav["waypoints"], waypoint]
         route = self._t_calculate_route(destination=nav["destination"],
                                         waypoints=[self.resolve_node(w) for w in wps])

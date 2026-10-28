@@ -44,5 +44,6 @@ python -c "from module_1_simulator.environment import CarEnvironment; e=CarEnvir
 - [ ] Driving moves node by node (no position inside an edge); charging is linear to 80 %.
 
 ## Log (newest first)
+- 2026-10-28 (fresh-clone check): a waypoint equal to the destination (or already on the route) is not added twice; 22 tests.
 - 2026-10-28 (problem-statement review): road closure / delay / drain events, drive(), get_traffic, 3 new presets; 21 tests.
 - 2026-10-28: world, environment, tool specs, presets, dynamic events; 15 tests.
