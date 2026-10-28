@@ -11,6 +11,7 @@ from contracts import (
     DecisionKind,
 )
 
+from .utility_evpi import default_utility, utility_scores
 from .evpi import (
     Labeler,
     Phraser,
@@ -23,12 +24,35 @@ from .evpi import (
 )
 
 
+# How bad acting on the wrong interpretation is, per tool (risk-aware clarification).
+RISK_OF_TOOL = {
+    "send_message": "high", "call_contact": "high", "windows": "high", "video": "high",
+    "navigate": "medium", "find_charging": "medium", "find_cafe": "medium", "find_rest_area": "medium",
+    "find_pharmacy": "medium", "find_hospital": "medium", "reminder": "medium",
+    "climate": "low", "media": "low", "chat": "low", "info_eta": "low", "info_traffic": "low",
+    "info_calendar": "low", "info_vehicle": "low",
+}
+RISK_ORDER = {"low": 0, "medium": 1, "high": 2}
+
+
+def risk_of(belief: BeliefState) -> str:
+    """Highest risk among the candidate tools."""
+    risks = [RISK_OF_TOOL.get(c.tool, "medium") for c in belief.candidates]
+    return max(risks, key=RISK_ORDER.get) if risks else "medium"
+
+
 @dataclass(frozen=True)
 class ClarifierConfig:
     execute_threshold: float = 0.80   # proceed when the top candidate is at least this likely
     redundancy_lambda: float = 0.30   # penalty per repeat of the same question
     min_score: float = 0.05           # do not ask if the best question gains less than this
     budget: int = 3                   # max questions per dialogue
+    # risk-aware mode (used when decide(..., risk=...) is called):
+    risk_thresholds: tuple[tuple[str, float], ...] = (("low", 0.65), ("medium", 0.80), ("high", 0.90))
+    wrong_cost: tuple[tuple[str, float], ...] = (("low", -0.2), ("medium", -1.0), ("high", -3.0))
+
+    def threshold(self, risk: str | None) -> float:
+        return dict(self.risk_thresholds).get(risk, self.execute_threshold) if risk else self.execute_threshold
 
 
 class EVPIClarifier:
@@ -63,15 +87,24 @@ class EVPIClarifier:
         history: ClarificationHistory,
         resolvable_params: frozenset[str] | set[str] = frozenset(),
         labeler: Labeler | None = None,
+        risk: str | None = None,
+        question_cost: float = 0.0,
     ) -> ClarificationDecision:
+        """`risk` ("low" | "medium" | "high" | "auto") switches on risk-aware clarification: the
+        execute threshold depends on how costly a wrong action is, and a question is only asked if
+        its utility-based EVPI exceeds `question_cost` (distraction while driving)."""
         cfg = self.config
         labeler = labeler or self.labeler
         top = belief.top()
+        if risk == "auto":
+            risk = risk_of(belief)
+        thr = cfg.threshold(risk)
 
-        if top.prob >= cfg.execute_threshold:
+        if top.prob >= thr:
             return ClarificationDecision(
                 kind=DecisionKind.PROCEED, candidate_id=top.id,
-                reason=f"top candidate probability {top.prob:.2f} >= {cfg.execute_threshold:.2f}",
+                reason=f"top candidate probability {top.prob:.2f} >= {thr:.2f}"
+                       + (f" ({risk} risk)" if risk else ""),
             )
 
         uncertain = uncertain_parameters(belief)
@@ -105,6 +138,15 @@ class EVPIClarifier:
                 kind=DecisionKind.PROCEED, candidate_id=top.id, scores=scores,
                 reason=f"best question score {scores[best]:.2f} < min_score {cfg.min_score:.2f}",
             )
+
+        if risk:
+            u = utility_scores(belief, default_utility(dict(cfg.wrong_cost)[risk]))
+            gain = u.get(best, 0.0)
+            if gain <= question_cost:
+                return ClarificationDecision(
+                    kind=DecisionKind.PROCEED, candidate_id=top.id, scores=scores,
+                    reason=f"asking is not worth it: utility gain {gain:.2f} <= question cost {question_cost:.2f}",
+                )
 
         options = [v for v, _ in answer_options(belief, best)]
         return ClarificationDecision(
