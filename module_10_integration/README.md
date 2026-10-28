@@ -29,6 +29,19 @@ uvicorn module_10_integration.api:app --port 8001               # API for the da
    confirmation; replan on failures.
 7. Reply built only from verified tool results and the environment state (no claims without a successful call).
 
+## While driving (problem-statement review)
+- `agent.drive(minutes)` advances the simulator; `agent.event(kind, ...)` injects a road closure, delay, station going
+  offline or faster battery drain. After each, module 3's world beliefs are updated and module 7's `TripMonitor`
+  replans; the driver is told what changed ("Road X is closed. New route: ...").
+- Clarification is risk-aware: the question cost comes from the driving load (speed, rain), so fewer questions are
+  asked on a busy highway, and risky actions need more confidence.
+- If no charger can be reached with the 10 % reserve, the agent says so and offers the closest one with a 1 % reserve
+  as an explicit, confirmed fallback.
+- Learned preferences: the driver's answers to clarification questions are recorded (module 3) and used next time.
+- `responder="template"` (default) or `"llm"` (module 2's grounded responder).
+- API: `POST /drive`, `POST /event`; `/state` includes world beliefs and driving load. The dashboard has
+  "While driving" controls, a world-beliefs card, closed roads in red and live station availability.
+
 ## Configurations (`config.py`)
 | name | tools | uncertainty + EVPI | planning + CSP + search | safety | policy |
 |---|---|---|---|---|---|
@@ -40,35 +53,38 @@ uvicorn module_10_integration.api:app --port 8001               # API for the da
 | full_rl | yes | yes | yes | yes | Q-learning (module 8) |
 
 ## Scenarios (`scenarios.py`)
-30 scenarios in 9 categories: base, indirect, ambiguous, internal_disambiguation, missing_capability, infeasible,
-multi_step, changing_environment (station goes offline, tool timeout), unsafe. Each has a success check on the final
+45 scenarios in 11 categories: base, indirect, ambiguous, internal_disambiguation, conflicting_calendar,
+missing_capability, infeasible, constraints (soft vs strict tolls), multi_step, changing_environment (station goes
+offline, road closure, battery drain, destination change, tool timeout), unsafe. The 15 added scenarios come from the
+problem statement's examples. Each has a success check on the final
 environment state, scripted answers for the simulated driver, an expected question count, and an optional
 safety-violation check. Repeated execution is measured by running each scenario 3 times (trials 2-3 perturb traffic
 and road speeds).
 
-## Results (`RESULTS.md`, 30 scenarios x 3 trials)
-| configuration | task success | Pass@3 | Pass^3 | questions / task | unnecessary q / task | safety violations / task | hallucinated / task |
-|---|---|---|---|---|---|---|---|
-| llm_alone | 0.20 | 0.20 | 0.20 | 0.00 | 0.00 | 0.00 | 1.00 |
-| llm_tools | 0.60 | 0.60 | 0.60 | 0.00 | 0.00 | 0.17 | 0.07 |
-| llm_uncertainty | 0.70 | 0.70 | 0.70 | 0.23 | 0.00 | 0.13 | 0.07 |
-| llm_planning | 0.70 | 0.70 | 0.70 | 0.00 | 0.00 | 0.17 | 0.07 |
-| full_fixed | 1.00 | 1.00 | 1.00 | 0.23 | 0.00 | 0.00 | 0.00 |
-| full_rl | 1.00 | 1.00 | 1.00 | 0.30 | 0.03 | 0.00 | 0.00 |
+## Results (`RESULTS.md`, 45 scenarios x 3 trials)
+| configuration | task success | Pass@3 | Pass^3 | questions / task | unnecessary q / task | safety violations / task | hallucinated / task | route quality | constraint satisfaction | policy compliance |
+|---|---|---|---|---|---|---|---|---|---|---|
+| llm_alone | 0.09 | 0.09 | 0.09 | 0.00 | 0.00 | 0.00 | 0.98 | 1.00 | 0.86 | 1.00 |
+| llm_tools | 0.47 | 0.47 | 0.47 | 0.00 | 0.00 | 0.09 | 0.11 | 1.00 | 0.93 | 0.91 |
+| llm_uncertainty | 0.58 | 0.58 | 0.58 | 0.29 | 0.00 | 0.07 | 0.09 | 1.00 | 0.93 | 0.93 |
+| llm_planning | 0.71 | 0.71 | 0.71 | 0.00 | 0.00 | 0.09 | 0.09 | 1.00 | 1.00 | 0.91 |
+| full_fixed | 1.00 | 1.00 | 1.00 | 0.29 | 0.00 | 0.00 | 0.00 | 1.00 | 1.00 | 1.00 |
+| full_rl | 1.00 | 1.00 | 1.00 | 0.31 | 0.02 | 0.00 | 0.00 | 1.00 | 1.00 | 1.00 |
 
 Reading the table:
-- LLM alone "succeeds" only on unsafe scenarios (doing nothing is safe) and claims success without calling a tool
-  every time.
-- Tools without safety cause violations (message to the landlord, AC at 35 C, windows at highway speed, a call
+- LLM alone "succeeds" only on some unsafe scenarios (doing nothing is safe) and claims success without a tool call.
+- Tools without safety break policy (message to the landlord, AC at 35 C, windows fully open at highway speed, a call
   during a storm, a message to an unsure recipient).
-- Uncertainty fixes the ambiguous cases; planning fixes infeasible trips and changing environments; only the full
-  system handles missing capabilities and all unsafe cases.
-- The RL policy asks one extra question (ctx_rahul_meeting) because the PDF reward pays +2 for a useful question but
-  charges for a lookup; see `module_8_rl/README.md`.
+- Uncertainty fixes ambiguous and conflicting-calendar cases; planning fixes infeasible trips, constraints and
+  changing conditions; only the full system handles missing capabilities and all unsafe cases.
+- Route quality is averaged over trials that produce a route; when a route is planned it is optimal for its stops.
+- The RL policy asks one extra question (ctx_rahul_meeting); see `module_8_rl/README.md`.
 
 ## Known limitations / TODO
 - [ ] Simulated driver answers are scripted; no user study.
 - [ ] Experiments use the rule-based parser for reproducibility; the LLM parser can be enabled with `parser="llm"`.
 
 ## Log (newest first)
+- 2026-10-28 (problem-statement review): driving loop and events, replanning, risk-aware questions, preference
+  learning, 15 new scenarios, route quality / constraint satisfaction / policy compliance metrics, dashboard; 12 tests.
 - 2026-10-28: agent, configs, scenario suite, metrics, experiments, API, dashboard; 9 tests.

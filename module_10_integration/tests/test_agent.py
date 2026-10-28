@@ -83,3 +83,32 @@ def test_api_roundtrip():
     assert c.post("/scenarios/base_nav_airport/run").json()["success"]
     assert c.post("/scenarios/nope/run").status_code == 404
     assert c.post("/chat", json={"message": "  "}).status_code == 400
+
+
+def test_api_drive_and_events():
+    from fastapi.testclient import TestClient
+    from module_10_integration.api import app
+    c = TestClient(app)
+    c.post("/reset", json={"preset": "battery_drain", "config": "full_fixed"})
+    c.post("/chat", json={"message": "Navigate to Cuttack"})
+    r = c.post("/drive", json={"minutes": 5}).json()
+    assert r["turn"]["kind"] == "confirm" and "draining faster" in r["turn"]["reply"]
+    assert r["state"]["beliefs"]["consumption_factor"]["mean"] > 1.2
+    assert c.post("/event", json={"kind": "nope"}).status_code == 400
+    assert c.post("/drive", json={"minutes": 0}).status_code == 400
+
+
+def test_preferences_learned_from_choices_skip_the_question():
+    from module_1_simulator.initial_states import make_state
+    agent = CopilotAgent(CarEnvironment(make_state()))
+    for _ in range(2):        # one odd choice does not flip it; two consistent ones do
+        assert agent.handle("I need tea").kind == "question"
+        agent.handle("just add a reminder")
+    t = agent.handle("I need tea")
+    assert t.kind != "question" and agent.env.state["reminders"]
+
+
+def test_driving_load_raises_question_cost():
+    from module_1_simulator.initial_states import make_state
+    hw = CopilotAgent(CarEnvironment(make_state("highway")))
+    assert hw.driving_difficulty() == "high" and hw._question_cost() > 0

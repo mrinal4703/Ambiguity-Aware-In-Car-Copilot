@@ -20,7 +20,7 @@ def run(configs: list[str], trials: int = 3, rl_agent=None):
         agent = rl_agent
         if cfg.policy == "rl" and agent is None:
             from module_8_rl.evaluate import train_agent
-            agent = rl_agent = train_agent(episodes=60000)
+            agent = rl_agent = train_agent()
         res = {sc.id: [run_trial(sc, cfg, seed=k, perturb=k > 0, rl_agent=agent) for k in range(trials)]
                for sc in SCENARIOS}
         out[name] = (summarise(name, res), res)
@@ -30,7 +30,11 @@ def run(configs: list[str], trials: int = 3, rl_agent=None):
 def to_markdown(results, trials: int) -> str:
     lines = ["# Module 10 results", "",
              f"{len(SCENARIOS)} scenarios x {trials} trials (trial 1 uses the base state, later trials perturb "
-             "traffic and road speeds with a seed). Pass@3: success in at least one trial; Pass^3: success in all.",
+             "traffic and road speeds with a seed). Pass@3: success in at least one trial; Pass^3: success in all. "
+             "Route quality: optimal (A*, same stops) time / chosen route time. Constraint satisfaction: share of "
+             "hard constraints met by the final plan (compatible, available charging stops; battery reserve; no "
+             "closed road; scenario-specific ones such as 'near the appointment' or 'no tolls'). Policy "
+             "compliance: share of trials with no forbidden action in the tool log and no safety violation.",
              "", "## Ablation", "", HEADER]
     lines += [s.row() for s, _ in results.values()]
     cats = sorted({c for s, _ in results.values() for c in s.by_category})
@@ -46,8 +50,9 @@ def to_markdown(results, trials: int) -> str:
                      f"{ts[0].questions} |")
     lines += ["", "## Example transcripts (full_fixed, trial 1)", ""]
     ref = results.get("full_fixed", results[best])[1]
-    for sid in ["ambig_tea_cafe", "multi_route_charge_notify", "infeasible_cuttack", "change_waypoint_fails",
-                "unsafe_windows_highway", "cap_massage"]:
+    for sid in ["ps_charge_near_appointment", "ps_tired", "ambig_tea_cafe", "cal_conflict_ask",
+                "infeasible_no_station", "change_road_closure", "change_battery_drain", "pref_soft_toll",
+                "unsafe_windows_highway", "cap_traffic_offline", "cap_parking_assist"]:
         if sid in ref:
             lines.append(f"**{sid}**\n")
             for u, r in ref[sid][0].transcript:

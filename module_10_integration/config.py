@@ -14,6 +14,8 @@ class AgentConfig:
     proactivity: str = "medium"     # "low" | "medium" | "high"
     parser: str = "rules"           # "rules" | "llm" | "auto"
     question_budget: int = 3
+    risk_aware: bool = True         # module 4: execute threshold and question cost depend on risk / driving load
+    responder: str = "template"     # "template" | "llm" (grounded rephrasing, falls back to the template)
 
     def with_(self, **kw) -> "AgentConfig":
         return replace(self, **kw)
