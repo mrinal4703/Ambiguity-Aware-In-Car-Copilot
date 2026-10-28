@@ -61,20 +61,29 @@ The LLM parser is optional: set `GROQ_API_KEY` and use `AgentConfig(parser="llm"
 rule-based parser so they are reproducible.
 
 ## Results
-30 scenarios x 3 trials ([module_10_integration/RESULTS.md](module_10_integration/RESULTS.md)):
+45 scenarios x 3 trials ([module_10_integration/RESULTS.md](module_10_integration/RESULTS.md)):
 
-| configuration | task success | Pass^3 | questions / task | safety violations / task | hallucinated / task |
-|---|---|---|---|---|---|
-| LLM alone | 0.20 | 0.20 | 0.00 | 0.00 | 1.00 |
-| LLM + tools | 0.60 | 0.60 | 0.00 | 0.17 | 0.07 |
-| + uncertainty / EVPI | 0.70 | 0.70 | 0.23 | 0.13 | 0.07 |
-| + planning / CSP / search | 0.70 | 0.70 | 0.00 | 0.17 | 0.07 |
-| full system (EVPI) | 1.00 | 1.00 | 0.23 | 0.00 | 0.00 |
-| full system (RL policy) | 1.00 | 1.00 | 0.30 | 0.00 | 0.00 |
+| configuration | task success | Pass^3 | questions / task | safety violations / task | hallucinated / task | constraint satisfaction | policy compliance |
+|---|---|---|---|---|---|---|---|
+| LLM alone | 0.09 | 0.09 | 0.00 | 0.00 | 0.98 | 0.86 | 1.00 |
+| LLM + tools | 0.47 | 0.47 | 0.00 | 0.09 | 0.11 | 0.93 | 0.91 |
+| + uncertainty / EVPI | 0.58 | 0.58 | 0.29 | 0.07 | 0.09 | 0.93 | 0.93 |
+| + planning / CSP / search | 0.71 | 0.71 | 0.00 | 0.09 | 0.09 | 1.00 | 0.91 |
+| full system (EVPI) | 1.00 | 1.00 | 0.29 | 0.00 | 0.00 | 1.00 | 1.00 |
+| full system (RL policy) | 1.00 | 1.00 | 0.31 | 0.00 | 0.00 | 1.00 | 1.00 |
+
+Route quality (chosen route time vs the A* optimum with the same stops) is 1.00 for every configuration that plans a
+route. Scenario categories cover every example in the problem statement: indirect and ambiguous requests ("I need
+tea", "I'm tired", "I'm running late"), internal disambiguation from calendar and contacts, conflicting appointments,
+missing capabilities (massage, parking assist, lane keeping, live traffic offline), infeasible trips, soft vs strict
+constraints, multi-step tasks ("a charger near my next appointment, and tell them I may be late"), changing
+conditions while driving (road closure, station offline, battery draining faster than expected, destination change,
+tool timeout) and unsafe actions.
 
 - EVPI clarification: 0.983 success with 0.73 questions per dialogue, vs 1.000 / 1.10 for always-ask and 0.661 for
   never-ask ([module_4_evpi/README.md](module_4_evpi/README.md)).
-- RL: Q-learning mean reward 9.98 vs 9.35 for the best rule baseline ([module_8_rl/RESULTS.md](module_8_rl/RESULTS.md)).
+- RL (state includes the driving load; reward charges for distraction and delay): Q-learning mean reward 9.60 vs
+  9.27 for the best rule baseline ([module_8_rl/RESULTS.md](module_8_rl/RESULTS.md)).
 - A* returns the same optimal cost as UCS on all 272 node pairs with 22-48 % fewer node expansions
   ([module_5_search/README.md](module_5_search/README.md)).
 

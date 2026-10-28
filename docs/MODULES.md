@@ -37,13 +37,13 @@ Updated by the maintainer from each module README.
 
 | # | Module | Owner | Status | Tests | Key result | Last checked |
 |---|---|---|---|---|---|---|
-| 1 | Simulator | Ramesh | done | 15 | 19 tools, 8 presets, dynamic events | 2026-10-28 |
-| 2 | NLU | Arjo | done | 27 + 7 | rule + LLM parser, LLM connection fixed | 2026-10-28 |
-| 3 | Uncertainty | Swastika | done | 12 | context weights, calibration, lookups | 2026-10-28 |
-| 4 | EVPI | Mrinal | done | 32 | success .983 with .729 questions/dialogue | 2026-10-28 |
-| 5 | Search | Sistu Neha | done | 11 | A* = UCS cost on 272 pairs, fewer expansions | 2026-10-28 |
-| 6 | CSP | Prasanna | done | 14 | charging plans + per-station explanations | 2026-10-28 |
-| 7 | Planning | Dipanjana | done | 13 | plans, verification, replanning | 2026-10-28 |
-| 8 | RL | Jana | done | 9 | Q-learning reward 9.98 vs best baseline 9.35 | 2026-10-28 |
-| 9 | Safety | Nishkarsh | done | 18 | capability, policy gate, verifier | 2026-10-28 |
-| 10 | Integration | Souymadeep | done | 9 | full system 30/30 scenarios, Pass^3 1.00 | 2026-10-28 |
+| 1 | Simulator | Ramesh | done | 21 | 19 tools + road/battery events, drive(), 11 presets | 2026-10-28 |
+| 2 | NLU | Arjo | done | 35 + 7 | PDF examples, soft/strict tolls, grounded responder | 2026-10-28 |
+| 3 | Uncertainty | Swastika | done | 17 | intent + world beliefs, preference learning | 2026-10-28 |
+| 4 | EVPI | Mrinal | done | 35 | success .983 with .729 questions/dialogue; risk-aware | 2026-10-28 |
+| 5 | Search | Sistu Neha | done | 13 | A* = UCS cost on 272 pairs, avoids closed roads | 2026-10-28 |
+| 6 | CSP | Prasanna | done | 20 | near / toll / reserve constraints, setting CSP | 2026-10-28 |
+| 7 | Planning | Dipanjana | done | 19 | plans, verification, trip monitor replanning | 2026-10-28 |
+| 8 | RL | Jana | done | 10 | Q-learning reward 9.60 vs best baseline 9.27 | 2026-10-28 |
+| 9 | Safety | Nishkarsh | done | 22 | policy gate, modify-instead-of-refuse | 2026-10-28 |
+| 10 | Integration | Souymadeep | done | 12 | full system 45/45 scenarios, Pass^3 1.00 | 2026-10-28 |
