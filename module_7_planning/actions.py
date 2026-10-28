@@ -13,7 +13,9 @@ from typing import Any
 from contracts import SafetyClass
 from module_1_simulator.tool_specs import TOOL_SPECS
 
-INTERNAL_ACTIONS = {"check_range", "choose_charging_station", "choose_poi", "resolve_contact", "compose_answer"}
+INTERNAL_ACTIONS = {"check_range", "choose_charging_station", "choose_poi", "resolve_contact", "compose_answer",
+                    "estimate_traffic", "estimate_eta"}
+SOFT_TOLL_MAX_SLOWDOWN = 1.30   # soft "avoid tolls": accept a toll-free route up to 30 % slower
 
 # recovery strategies understood by the executor
 RETRY = "retry"
@@ -68,7 +70,7 @@ def domain_for(goal: str, params: dict[str, Any], env: Any, context: dict[str, A
 
     if goal == "navigate":
         dest = p.get("destination")
-        pref = "no_toll" if ctx.get("avoid_tolls") else p.get("preference", "fastest")
+        pref = route_preference(env, dest, p.get("preference", "fastest"), ctx)
         acts += [
             A("check_range", pre={"vehicle_known"}, add={"range_ok"}, recovery=REPLAN_WITH_CHARGING,
               destination=dest),
@@ -80,11 +82,14 @@ def domain_for(goal: str, params: dict[str, Any], env: Any, context: dict[str, A
 
     if goal in ("find_charging", "navigate_with_charging"):
         dest = p.get("destination") or (nav_dest if goal == "find_charging" else None)
+        near = p.get("near")
+        near = near if isinstance(near, str) and not near.startswith("@") else None
+        anchor = near if ctx.get("charge_near") else None   # hard "near X" only when the driver said so
         acts += [
-            A("search_charging_stations", pre={"vehicle_known"}, add={"stations_known"},
-              near=p.get("near") if p.get("near") not in (None, "@current_route") else None, radius_km=40),
+            A("search_charging_stations", pre={"vehicle_known"}, add={"stations_known"}, near=near, radius_km=40),
             A("choose_charging_station", pre={"stations_known"}, add={"station_chosen"}, recovery=ABORT,
               destination=dest, deadline_min=ctx.get("deadline_min"), avoid_tolls=bool(ctx.get("avoid_tolls")),
+              avoid_tolls_strict=bool(ctx.get("avoid_tolls_strict")), near=anchor,
               exclude=tuple(ctx.get("exclude_stations", ()))),
             A("get_station_status", pre={"station_chosen"}, add={"station_available"},
               recovery=REPLAN_EXCLUDE_STATION, station_id="$choose_charging_station.station_id"),
@@ -127,6 +132,21 @@ def domain_for(goal: str, params: dict[str, Any], env: Any, context: dict[str, A
                       contact_id="$resolve_contact.contact_id"))
         return acts, frozenset({"call_started"})
 
+    if goal == "info_traffic":
+        if "live_traffic" in env.vehicle.get("features", []):
+            acts.append(A("get_traffic", add={"traffic_known"}, recovery=RETRY))
+        else:   # honest fallback: no live data, estimate from the map and time of day
+            acts.append(A("estimate_traffic", add={"traffic_known"}))
+        return acts, frozenset({"traffic_known"})
+
+    if goal == "info_eta":
+        acts.append(A("estimate_eta", pre={"vehicle_known"}, add={"eta_known"}))
+        return acts, frozenset({"eta_known"})
+
+    if goal == "chat":
+        acts.append(A("compose_answer", add={"answered"}, text=p.get("text", "")))
+        return acts, frozenset({"answered"})
+
     simple = {
         "climate": ("control_ac", "ac_set", {k: p[k] for k in ("on", "temperature_c", "delta_c") if k in p}),
         "windows": ("control_windows", "windows_set", {k: p[k] for k in ("position", "window") if k in p}),
@@ -144,6 +164,27 @@ def domain_for(goal: str, params: dict[str, Any], env: Any, context: dict[str, A
         return acts, frozenset({fact})
 
     raise UnsupportedGoal(goal)
+
+
+def route_preference(env: Any, dest: Any, pref: str, ctx: dict[str, Any]) -> str:
+    """Strict toll avoidance is a hard constraint; the default is soft: take the toll-free
+    route only if it is at most SOFT_TOLL_MAX_SLOWDOWN times slower than the requested one."""
+    if ctx.get("avoid_tolls_strict"):
+        return "no_toll"
+    if not ctx.get("avoid_tolls") or not dest:
+        return pref
+    from module_5_search import RouteSolver   # local import keeps the planner light
+    d = env.resolve_node(dest) if hasattr(env, "resolve_node") else dest
+    if d is None:
+        return pref
+    solver = RouteSolver.from_env(env)
+    base, free = solver.route(env.vehicle["location"], d, preference=pref), \
+        solver.route(env.vehicle["location"], d, preference="no_toll")
+    if free is None:
+        return pref
+    if base is None or free.time_min <= base.time_min * SOFT_TOLL_MAX_SLOWDOWN:
+        return "no_toll"
+    return pref
 
 
 class UnsupportedGoal(ValueError):

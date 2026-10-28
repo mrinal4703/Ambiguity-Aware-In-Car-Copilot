@@ -25,8 +25,20 @@ python -m pytest module_7_planning
   (not enough range), abort.
 - Execution pauses when the gate asks for confirmation and resumes after the driver answers.
 
+## Replanning while driving (problem-statement review)
+`monitor.py` (`TripMonitor`) runs after every drive step or external event:
+- a road on the route closes -> reroute to the same destination and stops;
+- a charging stop (or the charging destination) becomes unavailable -> replan the stop, excluding it;
+- P(arrive with reserve) under module 3's battery belief drops below 0.8 -> plan `navigate_with_charging`;
+- the driver changes the destination -> the normal navigate plan, whose range check adds a charging stop if needed.
+
+Other additions: goals `info_eta` (mean and 90 % arrival from the travel-time belief), `info_traffic` (live traffic,
+or an honest map estimate when the service is missing), `chat`; soft toll avoidance accepts a toll-free route up to
+30 % slower; a safe modification proposed by the gate (`modified_params`) is used once the driver confirms it.
+
 ## Known limitations / TODO
 - [ ] BFS is fine for these short plans; a heuristic planner would be needed for long ones.
 
 ## Log (newest first)
+- 2026-10-28 (problem-statement review): trip monitor and replanning, ETA / traffic / chat goals, soft tolls, modified actions; 19 tests.
 - 2026-10-28: action schemas, planner, executor with verification and replanning; 13 tests.
