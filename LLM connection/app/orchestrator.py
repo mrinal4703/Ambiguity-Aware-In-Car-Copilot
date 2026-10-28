@@ -2,9 +2,30 @@ from app.intent_parser import IntentParser
 from app.charging_router import ChargingRouter
 
 
+CHARGING_PHRASES = (
+    "out of charge",
+    "low on charge",
+    "running low on charge",
+    "low battery",
+    "battery is low",
+    "need to charge",
+    "charging station",
+    "running low on battery",
+)
+
+
+def is_charging_request(utterance: str, intent_result: dict) -> bool:
+    """Charging is detected from the NLU intent first, keywords second (fix B5)."""
+    if intent_result.get("intent") == "manage_charging":
+        return True
+    text = utterance.lower()
+    return any(phrase in text for phrase in CHARGING_PHRASES)
+
+
 class CopilotOrchestrator:
-    def __init__(self):
-        self.nlu = IntentParser()
+    def __init__(self, nlu: IntentParser | None = None):
+        # Share one parser with main.py instead of creating a second client (fix B12).
+        self.nlu = nlu or IntentParser()
         self.charging_router = ChargingRouter()
 
     def process(self, utterance, history, vehicle_context):
@@ -21,7 +42,7 @@ class CopilotOrchestrator:
         # 2. Check reflection
         if (
             isinstance(reflection, dict)
-            and reflection.get("is_valid") is False
+            and reflection.get("passed") is False
         ):
             return {
                 "status": "invalid",
@@ -29,10 +50,14 @@ class CopilotOrchestrator:
                 "reflection": reflection,
             }
 
-        # 3. Check ambiguity
+        # 3. Detect a charging request before the ambiguity check, so a charging
+        #    request is not turned into a generic clarification (fix B5).
+        charging = is_charging_request(utterance, intent_result)
+
+        # 4. Check ambiguity
         ambiguity = intent_result.get("ambiguity", {})
 
-        if ambiguity.get("is_ambiguous", False):
+        if ambiguity.get("is_ambiguous", False) and not charging:
             return {
                 "status": "clarification_required",
                 "question": (
@@ -42,25 +67,7 @@ class CopilotOrchestrator:
                 "intent": intent_result,
             }
 
-        # 4. Detect a charging request (prototype)
-        text = utterance.lower()
-
-        charging_phrases = (
-            "out of charge",
-            "low on charge",
-            "running low on charge",
-            "low battery",
-            "battery is low",
-            "need to charge",
-            "charging station",
-            "running low on battery",
-        )
-
-        is_charging_request = any(
-            phrase in text for phrase in charging_phrases
-        )
-
-        if not is_charging_request:
+        if not charging:
             return {
                 "status": "ready",
                 "intent": intent_result,

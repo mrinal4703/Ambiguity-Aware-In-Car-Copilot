@@ -1,5 +1,6 @@
 
 import json
+import re
 from openai import OpenAI
 from app.config import settings
 
@@ -28,13 +29,20 @@ class LLMClient:
                     "content": prompt
                 }
             ],
-            temperature=0
+            temperature=0,
+            # Ask the provider for a JSON object (fix B10).
+            response_format={"type": "json_object"},
         )
 
         content = response.choices[0].message.content
 
         if not content:
             raise ValueError("LLM returned an empty response")
+
+        # Strip markdown fences if the model added them anyway (fix B10).
+        fenced = re.search(r"```(?:json)?\s*(.*?)```", content, re.S)
+        if fenced:
+            content = fenced.group(1)
 
         try:
             return json.loads(content)

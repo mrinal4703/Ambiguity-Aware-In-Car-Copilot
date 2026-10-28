@@ -2,6 +2,12 @@ import json
 from typing import Any
 
 
+# Only these parameters may be filled from the vehicle context. In particular
+# temperature is NOT filled: a relative "make it colder" must not silently become
+# "set it to the current cabin temperature" (fix B4).
+CONTEXT_FILLABLE = {"destination", "current_location", "origin", "location"}
+
+
 class ReferenceResolver:
 
     def _parse_content(self, content: Any) -> dict:
@@ -28,6 +34,12 @@ class ReferenceResolver:
                 continue
 
             content = self._parse_content(message.get("content"))
+
+            # Older records were stored nested (fix B2).
+            for key in ("intent_result", "intent"):
+                if isinstance(content.get(key), dict):
+                    content = content[key]
+                    break
 
             actions = content.get("action_candidates", [])
 
@@ -79,7 +91,7 @@ class ReferenceResolver:
                 if parameters.get(key) in (
                     None, "", "unknown", "unresolved"
                 ):
-                    if key in vehicle_context:
+                    if key in CONTEXT_FILLABLE and key in vehicle_context:
                         parameters[key] = vehicle_context[key]
 
         return result

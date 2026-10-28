@@ -7,4 +7,3 @@ python-dotenv
 jsonschema
 pytest
 httpx
-scikit-learn

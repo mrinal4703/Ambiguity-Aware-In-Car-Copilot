@@ -4,7 +4,7 @@ class RewriteEngine:
 
         if not rewritten:
             result["rewritten_request"] = (
-                result.get("original_utterance", "")
+                result.get("utterance", "")
             )
 
         return result

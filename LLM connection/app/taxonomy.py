@@ -38,6 +38,12 @@ INTENT_TAXONOMY = {
     "calendar_query": [
         "get_calendar_events"
     ],
+    "manage_charging": [
+        "find_charging_station"
+    ],
+    "send_message": [
+        "send_text_message"
+    ],
     "unknown": []
 }
 
