@@ -57,6 +57,17 @@ class ContextResolver:
         r = self._call("get_calendar_events", next_only=True)
         return r.data[0] if r.ok and r.data else None
 
+    def next_events(self) -> list[dict[str, Any]]:
+        """The next event and any event overlapping it (conflicting commitments)."""
+        r = self._call("get_calendar_events")
+        if not r.ok or not r.data:
+            return []
+        first = r.data[0]
+        def mins(h: str) -> int:
+            return int(h[:2]) * 60 + int(h[3:])
+        end = mins(first["end"])
+        return [e for e in r.data if mins(e["start"]) < end]
+
     def contacts(self, query: str | None = None) -> list[dict[str, Any]]:
         r = self._call("get_contacts", **({"query": query} if query else {}))
         return r.data if r.ok else []
@@ -81,6 +92,16 @@ class ContextResolver:
         if not isinstance(value, str):
             return None
         if value == "@next_event_location":
+            evs = self.next_events()
+            if len(evs) > 1:        # conflicting commitments: each one is a possible destination
+                return [Alternative(e["location"], 1.0, f"{e['title']} at {e.get('location_name', e['location'])} "
+                                                        f"({e['start']})") for e in evs]
+            ev = evs[0] if evs else None
+            return [Alternative(ev["location"], 1.0, ev.get("location_name", ev["location"]))] if ev else []
+        if value == "@current_destination":
+            nav = getattr(self.env, "navigation", None) or {}
+            if nav.get("active") and nav.get("destination"):
+                return [Alternative(nav["destination"], 1.0, "current destination")]
             ev = self.next_event()
             return [Alternative(ev["location"], 1.0, ev.get("location_name", ev["location"]))] if ev else []
         if value == "@current_route":
