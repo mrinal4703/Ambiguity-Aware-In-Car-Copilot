@@ -54,3 +54,11 @@ def test_charging_waypoint_is_used_while_driving():
     out = env.drive(15)
     assert any("charged at" in e for e in out["events"])
     assert env.vehicle["battery_pct"] >= 70
+
+
+def test_waypoint_at_destination_is_not_duplicated():
+    from module_1_simulator.environment import CarEnvironment
+    e = CarEnvironment()
+    assert e.call("set_navigation", destination="kiit_square").ok
+    r = e.call("add_waypoint", waypoint="kiit_square")
+    assert r.ok and r.data["already_on_route"] and e.navigation["waypoints"] == []
