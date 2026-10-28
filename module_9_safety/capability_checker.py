@@ -24,6 +24,9 @@ GOAL_TOOLS = {
     "reminder": ["add_reminder"],
     "info_calendar": ["get_calendar_events"],
     "info_vehicle": ["get_vehicle_state"],
+    "info_eta": ["get_vehicle_state"],
+    "info_traffic": [],          # live traffic is optional: without it the copilot estimates from the map
+    "chat": [],
 }
 
 ALTERNATIVES = {
@@ -35,6 +38,9 @@ ALTERNATIVES = {
     "windows": "I can adjust the AC instead.",
     "video": "I can play music or a podcast instead.",
     "climate": "I can open the windows a little instead.",
+    "live_traffic": "I can estimate the travel time from the map instead.",
+    "parking_assist": "I can find a parking spot near your destination instead.",
+    "lane_assist": "I can't steer the car; please keep both hands on the wheel. I can find a rest stop if you are tired.",
 }
 
 

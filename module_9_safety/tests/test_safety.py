@@ -24,8 +24,8 @@ def test_missing_or_unresolved_parameters_deferred():
     assert v("set_navigation", {"destination": "@next_event_location"}) == Verdict.DEFER
 
 
-@pytest.mark.parametrize("params,expected", [({"temperature_c": 35}, Verdict.BLOCK),
-                                             ({"temperature_c": 15}, Verdict.BLOCK),
+@pytest.mark.parametrize("params,expected", [({"temperature_c": 35}, Verdict.CONFIRM),   # modify -> 30 C
+                                             ({"temperature_c": 15}, Verdict.CONFIRM),   # modify -> 16 C
                                              ({"delta_c": -2}, Verdict.ALLOW),
                                              ({"temperature_c": 22}, Verdict.ALLOW)])
 def test_ac_range(params, expected):
@@ -34,8 +34,10 @@ def test_ac_range(params, expected):
 
 def test_windows_at_highway_speed():
     hw = CarEnvironment(make_state("highway"))
-    assert v("control_windows", {"position": 80}, hw, explicit=True) == Verdict.DEFER
-    assert v("control_windows", {"position": 30}, hw, explicit=True) == Verdict.ALLOW
+    r = P.check("control_windows", {"position": 80}, hw, SafetyContext(explicit=True))
+    assert r.verdict == Verdict.CONFIRM and r.modified_params == {"position": 20}
+    assert v("control_windows", {"position": 50}, hw, explicit=True) == Verdict.CONFIRM
+    assert v("control_windows", {"position": 20}, hw, explicit=True) == Verdict.ALLOW
     assert v("control_windows", {"position": 80}, explicit=True) == Verdict.ALLOW     # city speed
 
 
@@ -108,3 +110,32 @@ def test_verify_outcome():
 
 def test_system_added_waypoints_need_confirmation():
     assert v("set_navigation", {"destination": "cuttack", "waypoints": ["cs_kiit"]}, explicit=True) == Verdict.CONFIRM
+
+
+def test_ac_modify_suggests_closest_supported_value():
+    r = P.check("control_ac", {"temperature_c": 35}, CarEnvironment(), SafetyContext(explicit=True))
+    assert r.modified_params["temperature_c"] == 30
+
+
+def test_windows_modify_is_applied_after_confirmation():
+    hw = CarEnvironment(make_state("highway"))
+    ex = Executor(hw, gate=P.gate(SafetyContext(explicit=True)))
+    rep = ex.start("windows", {"position": 100})
+    assert rep.status == "awaiting_confirmation" and "20%" in rep.message
+    rep = ex.resume(rep, True)
+    assert rep.succeeded and max(hw.vehicle["windows"].values()) == 20
+
+
+def test_honest_capability_alternatives():
+    env = CarEnvironment(make_state("traffic_offline"))
+    r = P.check("get_traffic", {}, env)
+    assert r.verdict == Verdict.BLOCK and "estimate" in r.reason
+    for f in ("parking_assist", "lane_assist"):
+        c = check_request("unsupported", {"feature": f}, CarEnvironment())
+        assert not c.supported and c.alternative
+
+
+def test_confirmation_never_unlocks_an_unsafe_value():
+    hw = CarEnvironment(make_state("highway"))
+    assert v("control_windows", {"position": 80}, hw, confirmed=True) == Verdict.DEFER
+    assert v("control_ac", {"temperature_c": 35}, confirmed=True) == Verdict.BLOCK

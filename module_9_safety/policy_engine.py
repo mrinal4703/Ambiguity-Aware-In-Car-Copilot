@@ -4,8 +4,12 @@ Every tool step is checked *before* execution, independently of the LLM:
 
 1. capability      tool exists and the car has the feature          -> BLOCK
 2. parameters      required parameters present and resolved         -> DEFER (ask)
-3. validity        AC 16-30 C, windows 0-100 %                       -> BLOCK
-4. driving safety  video while moving, windows > 50 % above 80 km/h -> BLOCK / DEFER
+3. validity        AC 16-30 C, windows 0-100 %                       -> MODIFY (closest valid value) / BLOCK
+4. driving safety  video while moving                                -> BLOCK
+                   windows > 20 % above 80 km/h                      -> MODIFY ("open to 20 % instead?")
+
+MODIFY is a CONFIRM verdict carrying `modified_params`: the closest safe value found
+by module 6's setting CSP. The executor applies it only after the driver agrees.
 5. authorization   contact allows messages, recipient confidence    -> BLOCK
 6. workload        high driving difficulty defers non-urgent comms  -> DEFER
 7. confirmation    consequential actions need explicit confirmation -> CONFIRM
@@ -18,6 +22,8 @@ from typing import Any
 from contracts import Plan, PlanStep, SafetyClass, SafetyVerdict, Verdict
 from module_1_simulator.tool_specs import TOOL_SPECS
 
+from module_6_csp import solve_setting, window_domain, ac_domain
+
 from .capability_checker import tool_supported
 
 INTERNAL_ACTIONS = {"check_range", "choose_charging_station", "choose_poi", "resolve_contact", "compose_answer"}
@@ -29,7 +35,7 @@ NAVIGATION = {"set_navigation", "add_waypoint", "cancel_navigation"}
 class SafetyConfig:
     ac_min_c: float = 16.0
     ac_max_c: float = 30.0
-    window_max_pct_at_speed: int = 50
+    window_max_pct_at_speed: int = 20
     window_speed_kmh: float = 80.0
     recipient_min_confidence: float = 0.9
     confirm_navigation_when_inferred: bool = True
@@ -47,6 +53,18 @@ class SafetyContext:
 @dataclass
 class SafetyPolicy:
     config: SafetyConfig = field(default_factory=SafetyConfig)
+
+    def setting_limits(self, action: str, env: Any) -> list[tuple[str, Any]]:
+        """Hard limits on a setting in the current situation (used by the setting CSP)."""
+        cfg = self.config
+        if action == "control_ac":
+            return [("supported_range", lambda x: cfg.ac_min_c <= x <= cfg.ac_max_c)]
+        if action == "control_windows":
+            lim = [("valid_range", lambda x: 0 <= x <= 100)]
+            if env.vehicle["speed_kmh"] > cfg.window_speed_kmh:
+                lim.append(("safe_at_speed", lambda x: x <= cfg.window_max_pct_at_speed))
+            return lim
+        return []
 
     def check(self, action: str, params: dict[str, Any], env: Any, ctx: SafetyContext | None = None,
               step_id: str | None = None) -> SafetyVerdict:
@@ -78,14 +96,28 @@ class SafetyPolicy:
             if params.get("temperature_c") is not None:
                 target = float(params["temperature_c"])
             if not cfg.ac_min_c <= target <= cfg.ac_max_c:
-                return V(Verdict.BLOCK, f"{target:g} C is outside the supported {cfg.ac_min_c:g}-{cfg.ac_max_c:g} C range")
+                fix = solve_setting(target, ac_domain(), self.setting_limits(action, env))
+                why = f"{target:g} C is outside the supported {cfg.ac_min_c:g}-{cfg.ac_max_c:g} C range"
+                if fix.feasible and not ctx.confirmed:
+                    return SafetyVerdict(verdict=Verdict.CONFIRM, step_id=step_id,
+                                         reason=f"{why}. Set it to {fix.value:g} C instead?",
+                                         modified_params={"temperature_c": fix.value, "delta_c": None})
+                return V(Verdict.BLOCK, why)
         if action == "control_windows":
             pos = int(params["position"])
-            if not 0 <= pos <= 100:
-                return V(Verdict.BLOCK, "window position must be between 0 and 100 %")
-            # 4. driving safety
-            if pos > cfg.window_max_pct_at_speed and speed > cfg.window_speed_kmh:
-                return V(Verdict.DEFER, f"opening windows more than {cfg.window_max_pct_at_speed}% above "
+            limits = self.setting_limits(action, env)
+            broken = [n for n, ok in limits if not ok(pos)]
+            if broken:
+                fix = solve_setting(pos, window_domain(), limits)
+                if "valid_range" in broken or not fix.feasible:
+                    return V(Verdict.BLOCK, "window position must be between 0 and 100 %")
+                # 4. driving safety -> modify instead of refusing
+                if not ctx.confirmed:
+                    return SafetyVerdict(
+                        verdict=Verdict.CONFIRM, step_id=step_id, modified_params={"position": int(fix.value)},
+                        reason=(f"opening the windows to {pos}% above {cfg.window_speed_kmh:g} km/h is unsafe. "
+                                f"Open them to {int(fix.value)}% instead?"))
+                return V(Verdict.DEFER, f"opening the windows more than {cfg.window_max_pct_at_speed}% above "
                                         f"{cfg.window_speed_kmh:g} km/h is unsafe; I can do it when you slow down")
             if pos > 0 and env.driving.get("weather") == "rain" and not ctx.confirmed:
                 return V(Verdict.CONFIRM, "it is raining; open the windows anyway?")
