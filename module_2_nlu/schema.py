@@ -25,6 +25,9 @@ GOALS: dict[str, list[str]] = {
     "reminder":       ["text"],
     "info_calendar":  [],
     "info_vehicle":   [],
+    "info_traffic":   [],
+    "info_eta":       [],
+    "chat":           [],               # keep the driver company (e.g. when tired); no vehicle tool
     "unsupported":    ["feature"],
 }
 
@@ -33,6 +36,7 @@ REFERENCES = {
     "@next_event_location": "location of the next calendar event",
     "@next_event_people": "organizer/attendees of the next calendar event",
     "@current_route": "the active route or current location",
+    "@current_destination": "destination of the active navigation",
 }
 
 
