@@ -1,6 +1,6 @@
 pydantic>=2.0
 pytest>=8.0
-# needed by the tests of the NLU service in "LLM connection/" (module 2)
+# needed by the tests of the NLU service in module_2_nlu/llm_connection/ (module 2)
 pydantic-settings>=2.0
 openai>=1.0
 fastapi>=0.110
