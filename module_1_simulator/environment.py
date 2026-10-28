@@ -10,6 +10,11 @@ Extra hooks for evaluation (CAR-bench style):
                                      (e.g. a charging station goes offline)
   * `seed`                         – reproducible random perturbations
                                      (traffic, availability of flaky stations)
+  * `close_road(a, b)`             – a road becomes impassable (road conditions change)
+  * `set_road_delay(a, b, factor)` – congestion on one road
+  * `set_actual_consumption(f)`    – the battery drains f times faster than the car's model says
+  * `drive(minutes)`               – move the car along the active route (time, position and battery
+                                     advance; charging stops on the route are used)
 """
 from __future__ import annotations
 
@@ -74,6 +79,29 @@ class CarEnvironment:
     def schedule(self, tool: str, mutation: Callable[["CarEnvironment"], None]) -> None:
         self._scheduled.setdefault(tool, []).append(mutation)
 
+    # ---- world changes used by "changing environment" scenarios
+    def _road(self, a: str, b: str) -> dict[str, Any]:
+        for r in self.state["roads"]:
+            if {r["from"], r["to"]} == {a, b}:
+                return r
+        raise KeyError(f"no road {a} - {b}")
+
+    def close_road(self, a: str, b: str, closed: bool = True) -> None:
+        self._road(a, b)["closed"] = closed
+
+    def set_road_delay(self, a: str, b: str, factor: float) -> None:
+        self._road(a, b)["delay_factor"] = float(factor)
+
+    def set_actual_consumption(self, factor: float) -> None:
+        """Real energy use = model energy x factor (the car's own model does not know this)."""
+        self.vehicle["actual_consumption_factor"] = float(factor)
+
+    def route_blocked(self) -> list[tuple[str, str]]:
+        """Closed roads on the active route."""
+        route = (self.navigation.get("route") or {}).get("path") or []
+        closed = {frozenset((r["from"], r["to"])) for r in self.state["roads"] if r.get("closed")}
+        return [(a, b) for a, b in zip(route, route[1:]) if frozenset((a, b)) in closed]
+
     # -------------------------------------------------------------- accessors
     @property
     def vehicle(self) -> dict[str, Any]:
@@ -114,6 +142,8 @@ class CarEnvironment:
     def neighbours(self, node: str) -> list[dict[str, Any]]:
         out = []
         for r in self.state["roads"]:
+            if r.get("closed"):
+                continue
             if r["from"] == node:
                 out.append({**r})
             elif r["to"] == node:
@@ -122,7 +152,7 @@ class CarEnvironment:
 
     def edge_time_min(self, road: dict[str, Any]) -> float:
         factor = TRAFFIC_FACTOR.get(self.driving["traffic"], 1.0) if road["road_type"] == "city" else 1.0
-        return road["distance_km"] / road["speed_kmh"] * 60.0 * factor
+        return road["distance_km"] / road["speed_kmh"] * 60.0 * factor * road.get("delay_factor", 1.0)
 
     def edge_energy_kwh(self, road: dict[str, Any]) -> float:
         f = HIGHWAY_ENERGY_FACTOR if road["road_type"] == "highway" else 1.0
@@ -376,6 +406,93 @@ class CarEnvironment:
             raise ToolError("video playback is only possible when parked")
         return {"playing_video": title}
 
+    def _t_get_traffic(self):
+        """Live traffic along the active route (needs the live_traffic service)."""
+        route = (self.navigation.get("route") or {}).get("path") or []
+        legs = list(zip(route, route[1:]))
+        incidents = []
+        for r in self.state["roads"]:
+            if r.get("closed") or r.get("delay_factor", 1.0) > 1.05:
+                on_route = any({r["from"], r["to"]} == {a, b} for a, b in legs)
+                incidents.append({"from": r["from"], "to": r["to"], "closed": bool(r.get("closed")),
+                                  "delay_factor": r.get("delay_factor", 1.0), "on_route": on_route})
+        return {"level": self.driving["traffic"], "incidents": incidents,
+                "route_time_min": (self.navigation.get("route") or {}).get("time_min")}
+
+    # ------------------------------------------------------------ driving
+    def _use_waypoints_at(self, node: str, events: list[str]) -> None:
+        """Drop waypoints at `node`; charge to 80 % at a usable charging station (or a station destination)."""
+        nav, cap = self.navigation, self.vehicle["battery_capacity_kwh"]
+        stops = [w for w in nav["waypoints"] if w == node or (self.station(w) or {}).get("node") == node]
+        for w in stops:
+            nav["waypoints"].remove(w)
+        stations = [self.station(w) for w in stops if self.station(w)]
+        for st in stations[:1]:
+            if st["available"] and self.vehicle["connector"] in st["connectors"]:
+                before = self.vehicle["battery_pct"]
+                target = max(before, 80.0)
+                mins = (target - before) / 100.0 * cap / st["power_kw"] * 60.0
+                self.vehicle["battery_pct"] = target
+                self.driving["time"] = hhmm(minutes(self.driving["time"]) + mins)
+                events.append(f"charged at {st['name']} to {target:.0f}% ({mins:.0f} min)")
+
+    def drive(self, minutes_: float) -> dict[str, Any]:
+        """Advance the simulation along the active route by `minutes_` of driving.
+
+        Position moves node by node, time advances, the battery drains by the *actual*
+        consumption (model energy x actual_consumption_factor). A charging-station
+        waypoint that is reached is used: the car charges to 80 % (simple linear model).
+        Returns what happened, so callers can react (arrived, charged, battery low).
+        """
+        nav = self.navigation
+        events: list[str] = []
+        if not nav["active"] or not nav.get("route"):
+            self.driving["time"] = hhmm(minutes(self.driving["time"]) + minutes_)
+            return {"moved_km": 0.0, "events": events, "expected_kwh": 0.0, "actual_kwh": 0.0}
+        factor = self.vehicle.get("actual_consumption_factor", 1.0)
+        left = float(minutes_)
+        moved = 0.0
+        expected = actual = 0.0
+        path = nav["route"]["path"]
+        cap = self.vehicle["battery_capacity_kwh"]
+        i = 0
+        self._use_waypoints_at(self.vehicle["location"], events)   # a stop at the current position
+        while i < len(path) - 1 and left > 0:
+            a, b = path[i], path[i + 1]
+            road = next((r for r in self.neighbours(a) if r["to"] == b), None)
+            if road is None:                   # closed while driving: stop before it
+                events.append(f"road {a}-{b} is closed")
+                break
+            t = self.edge_time_min(road)
+            if t > left:                       # stop at the node before an unfinished edge
+                break
+            left -= t
+            moved += road["distance_km"]
+            used = self.edge_energy_kwh(road) * factor
+            expected += self.edge_energy_kwh(road)
+            actual += used
+            self.vehicle["battery_pct"] = max(0.0, self.vehicle["battery_pct"] - used / cap * 100.0)
+            self.vehicle["location"] = b
+            self.driving["time"] = hhmm(minutes(self.driving["time"]) + t)
+            i += 1
+            self._use_waypoints_at(b, events)
+            if self.vehicle["battery_pct"] <= 0:
+                events.append("battery empty")
+                break
+        if self.vehicle["location"] == nav["destination"] and not nav["waypoints"]:
+            events.append(f"arrived at {self.location_name(nav['destination'])}")
+            self.state["navigation"] = {"active": False, "destination": None, "waypoints": [], "route": None}
+        elif nav["active"]:
+            try:
+                nav["route"] = self._t_calculate_route(destination=nav["destination"],
+                                                       waypoints=[self.resolve_node(w) for w in nav["waypoints"]])
+            except ToolError:
+                events.append("no route to the destination from here")
+        if self.vehicle["battery_pct"] < RESERVE_PCT:
+            events.append(f"battery low ({self.vehicle['battery_pct']:.0f}%)")
+        return {"moved_km": round(moved, 2), "events": events, "expected_kwh": round(expected, 3),
+                "actual_kwh": round(actual, 3)}
+
     # ------------------------------------------------------------- utilities
     def tool_calls(self, tool: str | None = None, ok: bool | None = None) -> list[ToolResult]:
         return [r for r in self.log if (tool is None or r.tool == tool) and (ok is None or r.ok == ok)]
@@ -385,7 +502,10 @@ class CarEnvironment:
         return {"vehicle": self._t_get_vehicle_state(), "driving": deepcopy(self.driving),
                 "navigation": deepcopy(self.navigation),
                 "messages_sent": deepcopy(self.state["messages_sent"]),
-                "calls": deepcopy(self.state["calls"]), "reminders": deepcopy(self.state["reminders"])}
+                "calls": deepcopy(self.state["calls"]), "reminders": deepcopy(self.state["reminders"]),
+                "stations": [{"id": st["id"], "node": st["node"], "available": st["available"]}
+                             for st in self.state["stations"]],
+                "closed_roads": [[r["from"], r["to"]] for r in self.state["roads"] if r.get("closed")]}
 
 
 class ToolError(Exception):

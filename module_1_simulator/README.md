@@ -30,9 +30,19 @@ python -c "from module_1_simulator.environment import CarEnvironment; e=CarEnvir
   `perturb=True` with a seed varies traffic and speeds for repeated trials (Pass^3).
 - Swappable router: module 5 plugs in its A* via `router=`.
 
+## Changing conditions (problem-statement review)
+- `close_road`, `set_road_delay`, `set_actual_consumption`, `route_blocked`: road closures, congestion and a battery
+  that drains faster than the car's model. Closed roads disappear from `neighbours`, so every search avoids them.
+- `drive(minutes)` moves the car along the route node by node, drains the battery by the *actual* consumption, charges
+  to 80 % at a charging stop, and reports expected vs actual energy so module 3 can learn the drain.
+- `get_traffic` needs the `live_traffic` feature; the `traffic_offline` preset removes it (honest-limitation tests).
+- New presets: `traffic_offline`, `conflicting_calendar` (dentist at Old Town overlaps the 15:00 review),
+  `battery_drain` (28 %, 1.8x real consumption). Unsupported features now include parking and lane assist.
+
 ## Known limitations / TODO
 - [ ] Synthetic coordinates and road speeds; no live traffic or map data.
-- [ ] Charging is modelled as a single stop duration, not a time-stepped simulation.
+- [ ] Driving moves node by node (no position inside an edge); charging is linear to 80 %.
 
 ## Log (newest first)
+- 2026-10-28 (problem-statement review): road closure / delay / drain events, drive(), get_traffic, 3 new presets; 21 tests.
 - 2026-10-28: world, environment, tool specs, presets, dynamic events; 15 tests.
