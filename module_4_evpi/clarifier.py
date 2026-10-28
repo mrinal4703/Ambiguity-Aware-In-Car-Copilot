@@ -12,6 +12,7 @@ from contracts import (
 )
 
 from .evpi import (
+    Labeler,
     Phraser,
     answer_options,
     evpi,
@@ -47,9 +48,11 @@ class EVPIClarifier:
         #                   still has the final word.
     """
 
-    def __init__(self, config: ClarifierConfig | None = None, phraser: Phraser | None = None):
+    def __init__(self, config: ClarifierConfig | None = None, phraser: Phraser | None = None,
+                 labeler: Labeler | None = None):
         self.config = config or ClarifierConfig()
         self.phraser = phraser
+        self.labeler = labeler
 
     def new_history(self) -> ClarificationHistory:
         return ClarificationHistory(budget=self.config.budget)
@@ -59,8 +62,10 @@ class EVPIClarifier:
         belief: BeliefState,
         history: ClarificationHistory,
         resolvable_params: frozenset[str] | set[str] = frozenset(),
+        labeler: Labeler | None = None,
     ) -> ClarificationDecision:
         cfg = self.config
+        labeler = labeler or self.labeler
         top = belief.top()
 
         if top.prob >= cfg.execute_threshold:
@@ -104,7 +109,7 @@ class EVPIClarifier:
         options = [v for v, _ in answer_options(belief, best)]
         return ClarificationDecision(
             kind=DecisionKind.ASK, parameter=best, scores=scores,
-            question=make_question(best, options, phraser=self.phraser),
+            question=make_question(best, options, phraser=self.phraser, labeler=labeler),
             options=[str(v) for v in options],
             reason=f"highest net score ({scores[best]:.2f}) on '{best}'",
         )

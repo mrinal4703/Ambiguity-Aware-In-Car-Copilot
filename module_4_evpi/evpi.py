@@ -23,6 +23,7 @@ from contracts import BeliefState, ClarificationHistory
 TOOL_PARAM = "tool"
 
 Phraser = Callable[[str, list[str]], str]
+Labeler = Callable[[str, Any], str]   # (param, value) -> human-readable option label
 
 
 def _value(candidate, param: str) -> Any:
@@ -107,9 +108,11 @@ def make_question(
     options: list[Any],
     max_options: int = 3,
     phraser: Phraser | None = None,
+    labeler: Labeler | None = None,
 ) -> str:
-    """Template question. Pass `phraser` to let an LLM word it more naturally."""
-    shown = [_label(param, v) for v in options[:max_options]]
+    """Template question. Pass `phraser` to let an LLM word it more naturally and
+    `labeler` to show friendly labels (e.g. contact names instead of ids)."""
+    shown = [(labeler(param, v) if labeler and v is not None else _label(param, v)) for v in options[:max_options]]
     if phraser is not None:
         return phraser(param, shown)
     extra = len(options) > max_options
@@ -118,4 +121,25 @@ def make_question(
         listing += ", or something else"
     if param == TOOL_PARAM:
         return f"What would you like me to do: {listing}?"
-    return f"Which {param.replace('_', ' ')} do you mean: {listing}?"
+    noun = {"recipient": "recipient", "destination": "destination", "near": "area"}.get(param, param.replace("_", " "))
+    return f"Which {noun} do you mean: {listing}?"
+
+
+def update_with_noisy_answer(
+    belief: BeliefState, param: str, answer: Any, reliability: float = 0.9
+) -> tuple[BeliefState, bool]:
+    """Bayesian update when the answer may be wrong (misheard / misspoken).
+
+    P(answer | candidate) = reliability            if the candidate has that value
+                          = (1 - reliability) / (k - 1)   otherwise (k = number of distinct values)
+    Unlike `update_with_answer`, no candidate is eliminated outright.
+    """
+    values = {_key(_value(c, param)) for c in belief.candidates}
+    if _key(answer) not in values:
+        return belief, False
+    k = len(values)
+    miss = (1 - reliability) / (k - 1) if k > 1 else 0.0
+    cands = [c.model_copy(update={"prob": c.prob * (reliability if _key(_value(c, param)) == _key(answer) else miss)})
+             for c in belief.candidates]
+    cands = [c for c in cands if c.prob > 0]
+    return BeliefState(candidates=cands), True
