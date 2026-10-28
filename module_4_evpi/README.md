@@ -47,6 +47,12 @@ python -m module_4_evpi.evaluate     # EVPI vs baselines on simulated dialogues
 EVPI keeps almost all of always-clarify's success while asking about a third fewer questions, none of them
 unnecessary, because it looks up resolvable parameters itself first.
 
+## Risk-aware clarification (problem-statement review)
+`decide(..., risk="auto", question_cost=c)`: the execute threshold depends on how costly a wrong action is
+(low 0.65 / medium 0.80 / high 0.90, from `RISK_OF_TOOL`: messages, calls and windows are high risk), and a question
+is asked only if its utility-based EVPI exceeds the distraction cost `c`, which module 10 sets from the driving load.
+Without `risk` the behaviour is unchanged (the reported results above).
+
 ## Assumptions and limitations
 - Probabilities in the demo are hypothetical (from the PDF's tea example), not measured.
 - EVPI here is a probability-gain proxy, not utility-based EVPI. Check against Suri et al. (2026).
@@ -65,5 +71,6 @@ unnecessary, because it looks up resolvable parameters itself first.
 - [ ] Noisy-answer model (user may answer unreliably)
 
 ## Log (newest first)
+- 2026-10-28 (problem-statement review): risk-aware thresholds and question cost; 35 tests.
 - 2026-10-28: utility EVPI, answer matching, baselines, evaluation; 32 tests.
 - 2026-10-20: starter implementation, 18 tests, demo.
