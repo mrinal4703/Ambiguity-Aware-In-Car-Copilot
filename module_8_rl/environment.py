@@ -1,7 +1,12 @@
 """Decision MDP with a scripted simulated user (module 8).
 
-State  s = (I, U, V, D, H): estimated intent belief (I, U), vehicle/safety status (V),
-feasibility and tool support (D) and interaction history / question budget (H).
+State  s = (I, U, V, D, H): estimated intent belief (I, U), vehicle and driving context
+(V: safety status, driving difficulty, low battery), feasibility and tool support (D) and
+interaction history (H: remaining question budget, i.e. questions already asked, and
+whether context was already looked up).
+
+Reward follows the PDF table, plus a distraction cost for questions while driving is
+demanding and a small delay cost for every extra turn.
 
 Actions: EXECUTE, CLARIFY, GATHER_CONTEXT, SUGGEST_ALTERNATIVE, DELAY, REFUSE.
 
@@ -30,6 +35,7 @@ class Act(IntEnum):
 
 ACTIONS = list(Act)
 SAFE, DEFERRABLE, FORBIDDEN = "safe", "deferrable", "forbidden"
+DIFFICULTIES = ["low", "medium", "high"]
 
 
 @dataclass
@@ -41,6 +47,8 @@ class Situation:
     supported: bool = True             # car has the capability
     context_resolvable: bool = False   # a lookup (calendar, route) can resolve the ambiguity
     budget: int = 2
+    difficulty: str = "low"            # driving difficulty: low | medium | high
+    battery_low: bool = False
     context_used: bool = False
     questions: int = 0
     steps: int = 0
@@ -63,7 +71,8 @@ def features(s: Situation) -> tuple[int, ...]:
     margin = s.belief.margin() if len(s.belief.candidates) > 1 else 1.0
     return (_bucket(top, [0.5, 0.7, 0.9]), _bucket(margin, [0.2, 0.5]), min(s.budget, 2),
             [SAFE, DEFERRABLE, FORBIDDEN].index(s.safety), int(s.feasible), int(s.supported),
-            int(s.context_resolvable and not s.context_used))
+            int(s.context_resolvable and not s.context_used),
+            DIFFICULTIES.index(s.difficulty) if s.difficulty in DIFFICULTIES else 0, int(s.battery_low))
 
 
 def safety_mask(s: Situation) -> list[bool]:
@@ -104,6 +113,8 @@ class DecisionEnv:
     p_infeasible: float = 0.1
     p_unsupported: float = 0.08
     p_context: float = 0.3
+    p_high_difficulty: float = 0.2
+    p_battery_low: float = 0.2
     rng: random.Random = field(init=False)
 
     def __post_init__(self) -> None:
@@ -122,9 +133,14 @@ class DecisionEnv:
         true = r.choices(cands, weights=[c.prob for c in cands])[0].id
         u = r.random()
         safety = DEFERRABLE if u < self.p_unsafe * 0.6 else FORBIDDEN if u < self.p_unsafe else SAFE
+        d = r.random()
+        difficulty = "high" if d < self.p_high_difficulty else "medium" if d < self.p_high_difficulty + 0.3 else "low"
+        battery_low = r.random() < self.p_battery_low
+        p_inf = min(0.9, self.p_infeasible * (3.0 if battery_low else 1.0))   # low battery -> more infeasible plans
         return Situation(belief=belief, true_id=true, safety=safety,
-                         feasible=r.random() >= self.p_infeasible, supported=r.random() >= self.p_unsupported,
-                         context_resolvable=n > 1 and r.random() < self.p_context)
+                         feasible=r.random() >= p_inf, supported=r.random() >= self.p_unsupported,
+                         context_resolvable=n > 1 and r.random() < self.p_context,
+                         difficulty=difficulty, battery_low=battery_low)
 
     def reset(self) -> Situation:
         self.s = self.sample()
@@ -151,8 +167,10 @@ class DecisionEnv:
             s.budget -= 1
             s.questions += 1
             self._answer(s)
-            return self._continue(s, R.useful_clarification if useful else R.unnecessary_clarification,
-                                  "asked" if useful else "unnecessary")
+            r = R.useful_clarification if useful else R.unnecessary_clarification
+            if s.difficulty == "high":
+                r += R.distraction_cost
+            return self._continue(s, r, "asked" if useful else "unnecessary")
         if a == Act.GATHER_CONTEXT:
             if s.context_resolvable and not s.context_used:
                 s.context_used = True
@@ -181,6 +199,7 @@ class DecisionEnv:
         raise ValueError(a)
 
     def _continue(self, s: Situation, reward: float, outcome: str) -> StepResult:
+        reward += self.rewards.delay_cost
         if s.steps >= self.max_steps:
             return StepResult(reward + self.rewards.timeout, True, "timeout")
         return StepResult(reward, False, outcome)
