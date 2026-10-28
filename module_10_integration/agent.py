@@ -1,8 +1,12 @@
 """The orchestrator (module 10).
 
-    utterance -> NLU (2) -> beliefs (3) -> EVPI / RL decision (4 / 8)
+    utterance -> NLU (2) -> beliefs over intent and world (3) -> EVPI / RL decision (4 / 8)
               -> plan with search + CSP + STRIPS planner (5, 6, 7)
               -> safety gate (9) -> execute + verify (1, 7, 9) -> response
+
+While driving (`drive`, `event`) the trip monitor (7) watches the route against the
+world beliefs (3) and replans when a road closes, a charging stop goes offline or the
+battery drains faster than expected.
 
 The agent is multi-turn: it can be waiting for a clarification answer or for a
 confirmation. Every reply is built from verified tool results only.
@@ -19,16 +23,18 @@ from module_1_simulator.environment import minutes as to_minutes
 from module_2_nlu import RuleBasedParser
 from module_2_nlu.llm_parser import LLMParser, make_parser
 from module_2_nlu.rule_parser import classify_confirmation
-from module_3_uncertainty import BeliefBuilder, BeliefBundle, ContextResolver, goal_of
+from module_3_uncertainty import BeliefBuilder, BeliefBundle, ContextResolver, PreferenceModel, WorldBelief, goal_of
 from module_4_evpi import EVPIClarifier, match_answer, score_all, make_question, answer_options
 from module_4_evpi.clarifier import ClarifierConfig
-from module_7_planning import Executor, ExecutionReport
+from module_7_planning import Executor, ExecutionReport, TripMonitor
 from module_9_safety import SafetyContext, SafetyPolicy, check_request
 from module_9_safety.policy_engine import SafetyConfig
 
 from .config import AgentConfig
 
-INFO_GOALS = {"info_calendar", "info_vehicle"}
+INFO_GOALS = {"info_calendar", "info_vehicle", "info_eta", "info_traffic", "chat"}
+CHARGING_GOALS = {"find_charging", "navigate_with_charging"}
+EMERGENCY_RESERVE_PCT = 1.0
 
 
 @dataclass
@@ -71,13 +77,20 @@ class CopilotAgent:
         self.rl_agent = rl_agent
         if self.config.policy == "rl" and self.rl_agent is None:
             from module_8_rl.evaluate import train_agent
-            self.rl_agent = train_agent(episodes=60000)
+            self.rl_agent = train_agent()
+        self.world = WorldBelief(self.env)          # module 3: beliefs over stations, battery, travel time
+        self.prefs = PreferenceModel()              # module 3: learned from the driver's past choices
+        self.monitor = TripMonitor(self.env, self.world)
+        self.responder = None
+        if self.config.responder == "llm":
+            from module_2_nlu.responder import GroundedResponder
+            self.responder = GroundedResponder()
         self.pending: _Pending | None = None
         self.queue: list[BeliefBundle] = []
         self.history: list[Turn] = []
         self.dialog: list[dict[str, str]] = []
         self.stats = {"questions": 0, "context_lookups": 0, "blocked": 0, "deferred": 0, "fabricated": 0,
-                      "confirmations": 0}
+                      "confirmations": 0, "replans": 0}
 
     def _make_parser(self):
         p = self.config.parser
@@ -94,9 +107,92 @@ class CopilotAgent:
     def handle(self, utterance: str) -> Turn:
         self.dialog.append({"role": "user", "content": utterance})
         turn = self._handle(utterance)
+        if self.responder is not None and turn.kind not in ("question", "confirm"):
+            turn.reply = self.responder.rephrase(turn.reply, turn.tool_calls)
         self.history.append(turn)
         self.dialog.append({"role": "assistant", "content": turn.reply})
         return turn
+
+    def drive(self, minutes: float) -> Turn:
+        """Advance the simulation; update world beliefs; replan if the trip is at risk."""
+        res = self.env.drive(minutes)
+        if res.get("expected_kwh"):
+            self.world.observe_drive(res["expected_kwh"], res["actual_kwh"])
+        note = (f"Drove {res['moved_km']:.1f} km. " if res["moved_km"] else "") + \
+            f"Battery {self.env.vehicle['battery_pct']:.0f}%."
+        for ev in res.get("events", []):
+            if isinstance(ev, str) and not ev.startswith("road "):   # closures are explained by the monitor
+                note += f" {ev[0].upper() + ev[1:]}."
+        return self._record(f"[drive {minutes:g} min]", self.check_trip(note))
+
+    def event(self, kind: str, **kw: Any) -> Turn:
+        """External change: road_closed(a, b) | station_offline(station) | drain(factor) | traffic(a, b, factor)."""
+        env = self.env
+        if kind == "road_closed":
+            env.close_road(kw["a"], kw["b"])
+            self.world.observe_closed(kw["a"], kw["b"])
+            note = ""
+            if not env.route_blocked():
+                note = f"Road {env.location_name(kw['a'])} - {env.location_name(kw['b'])} closed; it is not on your route."
+        elif kind == "station_offline":
+            env.set_station_availability(kw["station"], False)
+            self.world.observe_station(kw["station"], False)
+            note = ""
+            on_trip = kw["station"] in env.navigation.get("waypoints", []) or kw["station"] == self.monitor.target_station
+            if not on_trip:
+                note = f"{env.station(kw['station'])['name']} went offline; it is not on your trip."
+        elif kind == "drain":
+            env.set_actual_consumption(float(kw["factor"]))
+            note = "Battery drain changed."
+        elif kind == "traffic":
+            env.set_road_delay(kw["a"], kw["b"], float(kw["factor"]))
+            note = "Traffic changed."
+        else:
+            raise ValueError(f"unknown event {kind}")
+        return self._record(f"[event {kind}]", self.check_trip(note))
+
+    def _record(self, user: str, turn: Turn) -> Turn:
+        turn.user = user
+        self.history.append(turn)
+        self.dialog.append({"role": "assistant", "content": turn.reply})
+        return turn
+
+    def check_trip(self, note: str = "") -> Turn:
+        """Run the trip monitor; repair the plan if needed."""
+        if not self.config.use_planning or self.pending is not None:
+            return Turn("", note.strip(), "answer")
+        issues = self.monitor.check()
+        if not issues:
+            return Turn("", note.strip(), "answer")
+        issue = issues[0]
+        self.stats["replans"] += 1
+        if issue.goal is None:
+            r = self.monitor.reroute()
+            if r["ok"]:
+                rt = r["route"]
+                reply = (f"{note} {issue.detail[0].upper() + issue.detail[1:]}, so I rerouted: "
+                         f"{rt['distance_km']:.1f} km, about {rt['time_min']:.0f} min.")
+                return Turn("", reply.strip(), "done", {"kind": "replan", "issue": issue.kind})
+            return Turn("", f"{note} {issue.detail}, and there is no other route: {r['error']}.".strip(), "failed",
+                        {"kind": "replan", "issue": issue.kind})
+        gate = self.safety.gate(SafetyContext(explicit=False)) if self.config.use_safety else None
+        ex = Executor(self.env, gate=gate)
+        ctx = self._world_context()
+        rep = self.monitor.handle(issue, ex, ctx)
+        meta = {"goal": issue.goal, "params": issue.params, "decision": {"kind": "replan", "issue": issue.kind}}
+        turn = self._after_execution("", issue.goal, rep, ex, meta)
+        turn.reply = f"{note} {issue.detail[0].upper() + issue.detail[1:]}, so I re-planned. {turn.reply}".strip()
+        return turn
+
+    def _world_context(self) -> dict[str, Any]:
+        if not self.config.use_uncertainty:
+            return {}
+        out: dict[str, Any] = {"consumption_factor": self.world.cautious_consumption(),
+                               "station_availability": self.world.availability()}
+        rt = self.world.summary().get("route_time_min")
+        if rt:
+            out["travel_time"] = rt
+        return out
 
     # ============================================================== dispatch
     def _handle(self, text: str) -> Turn:
@@ -121,7 +217,8 @@ class CopilotAgent:
     def _new_request(self, text: str) -> Turn:
         result = self.parser.parse(text, self.dialog[-6:], {"battery_pct": self.env.vehicle["battery_pct"],
                                                            "speed_kmh": self.env.vehicle["speed_kmh"]})
-        builder = BeliefBuilder(ContextResolver(self.env), use_context_weights=self.config.use_uncertainty)
+        builder = BeliefBuilder(ContextResolver(self.env), use_context_weights=self.config.use_uncertainty,
+                                preferences=self.prefs if self.config.use_uncertainty else None)
         bundles = [builder.build(t, i, result.confidence, result.parser, result.notes)
                    for i, t in enumerate(result.tasks)]
         if not bundles or (all(b.belief is None for b in bundles) and classify_confirmation(text) is not None):
@@ -169,7 +266,9 @@ class CopilotAgent:
                 if d is None:
                     return self._execute(text, b, belief.top(), cands, {"kind": "proceed", "by": "rl"})
             else:
-                d = self.clarifier.decide(belief, history, resolvable, labeler=b.option_label)
+                d = self.clarifier.decide(belief, history, resolvable, labeler=b.option_label,
+                                          **({"risk": "auto", "question_cost": self._question_cost()}
+                                             if self.config.risk_aware else {}))
                 if d.kind == DecisionKind.PROCEED:
                     return self._execute(text, b, belief.top(), cands,
                                          {"kind": "proceed", "reason": d.reason, "by": "evpi"})
@@ -183,6 +282,16 @@ class CopilotAgent:
                         {"kind": "ask", "parameter": d.parameter, "options": d.options, "reason": d.reason},
                         self._cand_view(b, belief))
         return self._execute(text, b, belief.top(), cands)
+
+    def driving_difficulty(self) -> str:
+        v, d = self.env.vehicle, self.env.driving
+        if v["speed_kmh"] > 80 or d.get("weather") in ("storm", "heavy_rain") or d.get("traffic") == "heavy":
+            return "high"
+        return "medium" if v["speed_kmh"] > 30 else "low"
+
+    def _question_cost(self) -> float:
+        """Distraction cost of a question, in the utility units of module 4's utility-EVPI."""
+        return {"low": 0.0, "medium": 0.05, "high": 0.25}[self.driving_difficulty()]
 
     def _gather(self, b: BeliefBundle, belief: BeliefState, param: str, resolvable: set[str]):
         self.stats["context_lookups"] += 1
@@ -214,6 +323,9 @@ class CopilotAgent:
         for v in values:
             if v not in uniq:
                 uniq.append(v)
+        if d.options:   # keep the order in which the options were read out to the driver
+            order = {str(o): i for i, o in enumerate(d.options)}
+            uniq.sort(key=lambda v: order.get(str(v), len(order)))
         labels = [p.bundle.option_label(d.parameter, v) for v in uniq]
         chosen = match_answer(text, uniq, labels)
         if chosen is None:
@@ -223,6 +335,8 @@ class CopilotAgent:
                 return Turn(text, "Okay, I'll leave it.", "done")
             return None                                    # treat as a new request
         self.pending = None
+        if d.parameter == "tool":
+            self.prefs.record(p.bundle.task_text, chosen)      # learn from the driver's choice
         belief, history, _ = self.clarifier.apply_answer(p.belief, p.history, d.parameter, chosen)
         return self._decide(text, p.bundle, belief, history, self._cand_view(p.bundle, belief))
 
@@ -236,11 +350,12 @@ class CopilotAgent:
         safety = SAFE
         tool = {"windows": "control_windows", "video": "play_video", "climate": "control_ac"}.get(goal)
         if tool:
-            v = self.safety.check(tool, self._tool_params(goal, top.params), self.env,
-                                  SafetyContext(explicit=True, confirmed=True))
+            v = self.safety.check(tool, self._tool_params(goal, top.params), self.env, SafetyContext(explicit=True))
+            # a safe modification (e.g. windows 20 % instead of 100 %) counts as executable
             safety = {Verdict.BLOCK: FORBIDDEN, Verdict.DEFER: DEFERRABLE}.get(v.verdict, SAFE)
         s = Situation(belief=belief, true_id=top.id, safety=safety, feasible=True, supported=cap.supported,
-                      context_resolvable=bool(resolvable), budget=min(2, history.remaining))
+                      context_resolvable=bool(resolvable), budget=min(2, history.remaining),
+                      difficulty=self.driving_difficulty(), battery_low=self.env.vehicle["battery_pct"] < 20)
         return self.rl_agent.decide(s).name
 
     @staticmethod
@@ -311,9 +426,10 @@ class CopilotAgent:
         return any(t.kind == "question" for t in self.history[-2:])
 
     def _task_context(self, b: BeliefBundle, goal: str, params: dict[str, Any]) -> dict[str, Any]:
-        ctx: dict[str, Any] = {}
-        if b.constraints.get("avoid_tolls"):
-            ctx["avoid_tolls"] = True
+        ctx: dict[str, Any] = self._world_context()
+        for k in ("avoid_tolls", "avoid_tolls_strict", "charge_near"):
+            if b.constraints.get(k):
+                ctx[k] = True
         if b.constraints.get("deadline") == "@next_event_start":
             ev = ContextResolver(self.env).next_event()
             if ev:
@@ -381,7 +497,8 @@ class CopilotAgent:
         if rep.status == "awaiting_confirmation":
             self.pending = _Pending("confirm", executor=ex, report=rep, task_meta=meta)
             pre = self._progress_note(rep)
-            return Turn(text, (pre + " " + rep.message).strip(), "confirm", dec, cands, plan, calls, verdict)
+            msg = rep.message[:1].upper() + rep.message[1:]
+            return Turn(text, (pre + " " + msg).strip(), "confirm", dec, cands, plan, calls, verdict)
         if rep.status == "deferred":
             self.stats["deferred"] += 1
             return Turn(text, f"I'll hold off: {rep.message}.", "deferred", dec, cands, plan, calls, verdict)
@@ -392,15 +509,46 @@ class CopilotAgent:
             return Turn(text, "Okay, I won't do that.", "done", dec, cands, plan, calls, verdict)
         if rep.status != "completed":
             self._last_charge_min = None if goal in ("navigate",) else getattr(self, "_last_charge_min", None)
-            return Turn(text, f"I couldn't complete that: {rep.message}.", "failed", dec, cands, plan, calls, verdict)
+            alt = self._safer_alternative(text, rep, meta)
+            if alt is not None:
+                return alt
+            if rep.context.get("avoid_tolls_strict") and "no route" in (rep.message or ""):
+                dest = self.env.location_name(self.env.resolve_node(rep.params.get("destination")) or "there")
+                return Turn(text, f"There is no toll-free route to {dest}. Tell me if a toll road is okay.",
+                            "failed", dec, cands, plan, calls, verdict)
+            return Turn(text, f"I couldn't complete that: {rep.message.rstrip('.')}.", "failed", dec, cands, plan,
+                        calls, verdict)
         ch = rep.blackboard.get("choose_charging_station")
         if ch:
             self._last_charge_min = ch["charge_min"]
+            self.monitor.target_station = ch["station_id"]
         reply = self._summary(rep.goal, rep)
         if rep.replans and rep.context.get("exclude_stations") and rep.goal != "navigate_with_charging":
             gone = [self.env.station(x)["name"] for x in rep.context["exclude_stations"] if self.env.station(x)]
             reply = f"{', '.join(gone)} became unavailable, so I switched stations. " + reply
         return Turn(text, reply, "done", dec, cands, plan, calls, verdict)
+
+    def _safer_alternative(self, text: str, rep: ExecutionReport, meta: dict[str, Any]) -> Turn | None:
+        """No charging plan meets the safety reserve: say so briefly and offer the safest option left,
+        the closest compatible charger using the reserve, driven gently. Never claims success."""
+        if not self.config.use_planning or rep.goal not in CHARGING_GOALS | {"navigate"} \
+                or rep.context.get("reserve_pct") is not None or "charging plan" not in (rep.message or ""):
+            return None
+        v = self.env.vehicle
+        gate = self.safety.gate(SafetyContext(explicit=False)) if self.config.use_safety else None
+        ex = Executor(self.env, gate=gate)
+        ctx = {**rep.context, "reserve_pct": EMERGENCY_RESERVE_PCT}
+        r2 = ex.start("find_charging", {}, ctx)
+        head = f"No charger is reachable with the {10:g}% safety reserve (battery {v['battery_pct']:.0f}%)."
+        if r2.status == "awaiting_confirmation":
+            ch = r2.blackboard.get("choose_charging_station") or {}
+            self.pending = _Pending("confirm", executor=ex, report=r2,
+                                    task_meta={**meta, "goal": "find_charging", "emergency": True})
+            return Turn(text, f"{head} Safest option: {ch.get('station_name', 'the closest charger')} is "
+                              f"reachable if we use the reserve; drive gently and switch the AC off. "
+                              f"{r2.message}", "confirm", {"kind": "alternative"}, meta.get("cands", []))
+        return Turn(text, f"{head} Please stop safely and call roadside assistance; I can call a contact for you.",
+                    "failed", {"kind": "alternative"}, meta.get("cands", []))
 
     def _progress_note(self, rep: ExecutionReport) -> str:
         ch = rep.blackboard.get("choose_charging_station")
@@ -435,6 +583,9 @@ class CopilotAgent:
             s += f": {route.get('distance_km', 0):.1f} km, about {route.get('time_min', 0):.0f} min."
             if ch:
                 s += f" Charge to {ch['target_pct']}% (~{ch['charge_min']:.0f} min)."
+            if rep.context.get("avoid_tolls") or rep.context.get("avoid_tolls_strict"):
+                s += (" It uses a toll road: there is no toll-free route that is not much slower." if route.get("toll")
+                      else " Toll-free.")
             if rep.replans and goal == "navigate_with_charging":
                 s = "Not enough charge to get there directly, so I added a charging stop. " + s
             return s
@@ -462,6 +613,26 @@ class CopilotAgent:
                 return "You have no more events today."
             e = evs[0]
             return f"Next: {e['title']} at {e['start']} ({env.location_name(e['location'])})."
+        if goal == "info_eta":
+            e = bb.get("estimate_eta") or {}
+            late = f", {e['arrival_p90']} if traffic is bad" if e.get("arrival_p90") != e.get("arrival") else ""
+            return f"About {e.get('minutes', 0)} min to {e.get('destination_name', 'your destination')}: " \
+                   f"arriving around {e.get('arrival')}{late}."
+        if goal == "info_traffic":
+            t = bb.get("get_traffic") or bb.get("estimate_traffic") or {}
+            if t.get("estimated"):
+                return (f"Live traffic isn't available in this car. From the map and time of day I'd expect "
+                        f"{t.get('level', 'normal')} traffic" +
+                        (f"; the route takes about {t['route_time_min']:.0f} min." if t.get("route_time_min")
+                         else "."))
+            self.world.observe_traffic(t)
+            inc = [i for i in t.get("incidents") or [] if i.get("on_route")]
+            s = f"Traffic is {t.get('level', 'normal')}"
+            s += f"; {len(inc)} incident{'s' if len(inc) > 1 else ''} on the way." if inc else "; no incidents reported."
+            return s
+        if goal == "chat":
+            return ("I'm here. Tell me about your day while you drive. If you're getting sleepy, the safest "
+                    "thing is a short break; I can find a rest stop any time.")
         if goal == "info_vehicle":
             v = bb.get("get_vehicle_state") or env.call("get_vehicle_state").data
             return f"Battery {v['battery_pct']:.0f}% (about {v.get('range_km', env.range_km()):.0f} km range)."

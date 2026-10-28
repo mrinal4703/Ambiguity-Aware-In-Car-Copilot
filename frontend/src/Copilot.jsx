@@ -25,6 +25,10 @@ const KIND_LABEL = {
 };
 
 const EXAMPLES = [
+  "Take me to a charging station near my next appointment, and tell them I may be late",
+  "I'm tired",
+  "I'm running late",
+  "Turn on parking assist",
   "I need tea",
   "Take me to my next meeting and find a charger on the way",
   "Take me to Cuttack",
@@ -42,6 +46,8 @@ function WorldMap({ world, snapshot }) {
   const route = nav?.route?.geometry?.coordinates?.map(ll) || [];
   const here = loc[snapshot?.vehicle?.location]?.coords;
   const waypoints = new Set(nav?.waypoints || []);
+  const live = Object.fromEntries((snapshot?.stations || []).map((s) => [s.id, s.available]));
+  const closed = new Set((snapshot?.closed_roads || []).map(([a, b]) => [a, b].sort().join("|")));
   return (
     <MapContainer className="map" center={[20.32, 85.83]} zoom={11} scrollWheelZoom={false}>
       <TileLayer
@@ -52,7 +58,9 @@ function WorldMap({ world, snapshot }) {
         <Polyline
           key={`${r.a}-${r.b}`}
           positions={[ll(loc[r.a].coords), ll(loc[r.b].coords)]}
-          pathOptions={{ color: r.toll ? "#b45309" : "#94a3b8", weight: 2, dashArray: r.toll ? "6 4" : null }}
+          pathOptions={closed.has([r.a, r.b].sort().join("|"))
+            ? { color: "#b91c1c", weight: 4 }
+            : { color: r.toll ? "#b45309" : "#94a3b8", weight: 2, dashArray: r.toll ? "6 4" : null }}
         />
       ))}
       {route.length > 0 && <Polyline positions={route} pathOptions={{ color: "#2563eb", weight: 6 }} />}
@@ -61,7 +69,7 @@ function WorldMap({ world, snapshot }) {
           key={s.id}
           center={ll(loc[s.node].coords)}
           radius={waypoints.has(s.id) ? 10 : 6}
-          pathOptions={{ color: s.available ? "#15803d" : "#b91c1c", fillOpacity: 0.85 }}
+          pathOptions={{ color: (live[s.id] ?? s.available) ? "#15803d" : "#b91c1c", fillOpacity: 0.85 }}
         >
           <Popup>
             <b>{s.name}</b>
@@ -114,6 +122,35 @@ function Vehicle({ snapshot, stats }) {
           deferred {stats.deferred}
         </p>
       )}
+    </div>
+  );
+}
+
+function Beliefs({ beliefs, difficulty, world }) {
+  if (!beliefs) return null;
+  const names = Object.fromEntries((world?.stations || []).map((s) => [s.id, s.name]));
+  const avail = Object.entries(beliefs.station_availability || {}).sort((a, b) => a[1] - b[1]).slice(0, 4);
+  const cf = beliefs.consumption_factor;
+  const rt = beliefs.route_time_min;
+  return (
+    <div className="card">
+      <h3>World beliefs</h3>
+      <dl className="kv">
+        <dt>Driving load</dt><dd>{difficulty}</dd>
+        <dt>Energy use</dt><dd>{cf.mean.toFixed(2)} × model (± {cf.sd.toFixed(2)}, {cf.observations} obs)</dd>
+        {rt && <><dt>Route time</dt><dd>{rt.mean.toFixed(0)} min (90%: {rt.p90.toFixed(0)} min)</dd></>}
+        {beliefs.p_reach_destination !== undefined && (
+          <><dt>P(arrive with reserve)</dt><dd>{(beliefs.p_reach_destination * 100).toFixed(0)}%</dd></>
+        )}
+      </dl>
+      <h4>Least likely free chargers</h4>
+      {avail.map(([id, p]) => (
+        <div className="bar" key={id}>
+          <span>{names[id] || id}</span>
+          <div><i style={{ width: `${Math.round(p * 100)}%` }} /></div>
+          <b>{(p * 100).toFixed(0)}%</b>
+        </div>
+      ))}
     </div>
   );
 }
@@ -218,6 +255,33 @@ export default function Copilot() {
     }
   };
 
+  const act = async (path, body) => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await call(path, body);
+      setTurns((t) => [...t, r.turn]);
+      setState(r.state);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const nav = state?.snapshot?.navigation;
+  const closeRoad = () => {
+    const p = nav?.route?.path || [];
+    if (p.length >= 2) act("/event", { kind: "road_closed", a: p[0], b: p[1] });
+  };
+  const stopOffline = () => {
+    const stations = state?.snapshot?.stations || world?.stations || [];
+    const st = nav?.waypoints?.find((w) => stations.some((s) => s.id === w)) ||
+      stations.find((s) => s.node === nav?.destination)?.id;
+    if (st) act("/event", { kind: "station_offline", station: st });
+  };
+
   const reset = async () => {
     setBusy(true);
     setError("");
@@ -292,6 +356,16 @@ export default function Copilot() {
             <button key={x} onClick={() => send(x)} disabled={busy}>{x}</button>
           ))}
         </div>
+        <div className="card trip">
+          <h3>While driving</h3>
+          <div className="examples">
+            <button onClick={() => act("/drive", { minutes: 5 })} disabled={busy || !nav?.active}>Drive 5 min</button>
+            <button onClick={() => act("/drive", { minutes: 20 })} disabled={busy || !nav?.active}>Drive 20 min</button>
+            <button onClick={closeRoad} disabled={busy || !nav?.active}>Close a road on the route</button>
+            <button onClick={stopOffline} disabled={busy || !nav?.active}>Charging stop goes offline</button>
+            <button onClick={() => act("/event", { kind: "drain", factor: 1.8 })} disabled={busy}>Battery drains 1.8× faster</button>
+          </div>
+        </div>
         {error && <p className="error">{error}</p>}
       </section>
       <section className="right">
@@ -299,6 +373,7 @@ export default function Copilot() {
         <div className="grid2">
           <Vehicle snapshot={state?.snapshot} stats={state?.stats} />
           <Reasoning turn={last} />
+          <Beliefs beliefs={state?.beliefs} difficulty={state?.difficulty} world={world} />
         </div>
       </section>
     </main>

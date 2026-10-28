@@ -7,6 +7,9 @@ Endpoints
     GET  /world                 locations, roads, charging stations, POIs (for the map)
     GET  /state                 vehicle / navigation / messages + agent stats and recent turns
     POST /chat   {message}      one driver utterance -> Turn
+    POST /drive  {minutes}      drive along the route; beliefs update; the trip monitor may replan
+    POST /event  {kind, ...}    road_closed {a, b} | station_offline {station} | drain {factor}
+                                | traffic {a, b, factor}
     POST /reset  {preset, config}
     GET  /configs, /presets, /scenarios
     POST /scenarios/{id}/run    run one scenario with the simulated user, return transcript
@@ -26,7 +29,7 @@ from module_1_simulator import world
 from .agent import CopilotAgent
 from .config import ABLATIONS
 from .metrics import run_trial
-from .scenarios import SCENARIOS, by_id
+from .scenarios import SCENARIOS, by_id, step_label
 
 app = FastAPI(title="Ambiguity-Aware In-Car Copilot", version="1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -37,7 +40,7 @@ _rl_cache: dict[str, Any] = {}
 def _rl_agent():
     if "agent" not in _rl_cache:
         from module_8_rl.evaluate import train_agent
-        _rl_cache["agent"] = train_agent(episodes=60000)
+        _rl_cache["agent"] = train_agent()
     return _rl_cache["agent"]
 
 
@@ -66,6 +69,18 @@ class ChatIn(BaseModel):
     message: str
 
 
+class DriveIn(BaseModel):
+    minutes: float = 5.0
+
+
+class EventIn(BaseModel):
+    kind: str
+    a: str | None = None
+    b: str | None = None
+    station: str | None = None
+    factor: float | None = None
+
+
 class ResetIn(BaseModel):
     preset: str = "default"
     config: str = "full_fixed"
@@ -75,6 +90,8 @@ def _state(agent: CopilotAgent) -> dict[str, Any]:
     st = agent.state()
     st["preset"] = getattr(agent, "preset", "default")
     st["config_name"] = getattr(agent, "config_name", "full_fixed")
+    st["beliefs"] = agent.world.summary()
+    st["difficulty"] = agent.driving_difficulty()
     return st
 
 
@@ -104,6 +121,25 @@ def chat(body: ChatIn) -> dict[str, Any]:
     return {"turn": turn.to_dict(), "state": _state(agent)}
 
 
+@app.post("/drive")
+def drive(body: DriveIn) -> dict[str, Any]:
+    if not 0 < body.minutes <= 240:
+        raise HTTPException(400, "minutes must be between 0 and 240")
+    agent = _agent()
+    return {"turn": agent.drive(body.minutes).to_dict(), "state": _state(agent)}
+
+
+@app.post("/event")
+def event(body: EventIn) -> dict[str, Any]:
+    agent = _agent()
+    kw = {k: v for k, v in body.model_dump().items() if k != "kind" and v is not None}
+    try:
+        turn = agent.event(body.kind, **kw)
+    except (KeyError, ValueError, TypeError) as e:
+        raise HTTPException(400, f"bad event: {e}") from None
+    return {"turn": turn.to_dict(), "state": _state(agent)}
+
+
 @app.post("/reset")
 def reset(body: ResetIn) -> dict[str, Any]:
     _session["agent"] = _make_agent(body.preset, body.config)
@@ -122,7 +158,7 @@ def presets() -> list[str]:
 
 @app.get("/scenarios")
 def scenarios() -> list[dict[str, Any]]:
-    return [{"id": s.id, "category": s.category, "description": s.description, "utterances": s.utterances,
+    return [{"id": s.id, "category": s.category, "description": s.description, "utterances": [step_label(u) for u in s.utterances],
              "preset": s.preset} for s in SCENARIOS]
 
 
