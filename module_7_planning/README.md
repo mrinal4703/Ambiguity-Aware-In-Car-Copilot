@@ -40,5 +40,6 @@ or an honest map estimate when the service is missing), `chat`; soft toll avoida
 - [ ] BFS is fine for these short plans; a heuristic planner would be needed for long ones.
 
 ## Log (newest first)
+- 2026-10-28 (fresh-clone check): the add_waypoint verifier accepts a stop that is already the destination.
 - 2026-10-28 (problem-statement review): trip monitor and replanning, ETA / traffic / chat goals, soft tolls, modified actions; 19 tests.
 - 2026-10-28: action schemas, planner, executor with verification and replanning; 13 tests.
