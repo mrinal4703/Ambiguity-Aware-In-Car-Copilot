@@ -34,6 +34,8 @@ MEETING_REF = re.compile(r"\b(my |the )?(next )?(meeting|appointment|review)\b")
 UNSUPPORTED = {
     r"massage": "seat_massage", r"sun ?roof": "sunroof", r"auto ?pilot|self[- ]driv|drive (the car )?for me": "autopilot",
     r"heated steering|steering (wheel )?heat": "heated_steering", r"seat heat|heat(ed)? (my |the )?seat": "seat_heating",
+    r"park(ing)? assist|auto ?park|self[- ]park|park (the car )?for me": "parking_assist",
+    r"lane (keep(ing)?|assist|centering)|keep (me|us|the car) in (my|our|the) lane": "lane_assist",
 }
 SPLIT = re.compile(r"\s*(?:,\s*(?:(?:and then|and also|and|then)\s+)?|\b(?:and then|and also|and|then)\s+)"
                    r"(?=(?:please\s+)?(?:tell|text|message|send|call|"
@@ -104,8 +106,10 @@ def parse_task(raw: str) -> Task:
 
     if re.search(r"\b(urgent|asap|quickly|hurry|running late|late)\b", t):
         urgency = "high"
-    if re.search(r"\b(avoid(ing)?|no|without) (the )?tolls?\b", t):
-        constraints["avoid_tolls"] = True
+    if re.search(r"\b(avoid(ing)?|no|without|skip(ping)?) (the )?toll", t):
+        constraints["avoid_tolls"] = True            # soft preference by default
+        if re.search(r"\b(must|never|no tolls at all|absolutely|strictly|under no circumstances)\b", t):
+            constraints["avoid_tolls_strict"] = True   # driver made it a hard requirement
     if re.search(r"\b(fastest|quickest)\b", t):
         constraints["minimize_travel_time"] = True
 
@@ -146,9 +150,13 @@ def parse_task(raw: str) -> Task:
         explicit = bool(re.search(r"\b(take me|navigate|find|go|need|stop)\b", t))
         if MEETING_REF.search(t) and re.search(r"\b(near|close to|by|around|before)\b", t):
             near = "@next_event_location"
+            if re.search(r"\b(near|close to|by|around)\b", t):
+                constraints["charge_near"] = True    # hard: the station must be close to that place
         else:
             loc = find_location(re.sub(r"charging station", "", t))
             near = loc or "@current_route"
+            if loc:
+                constraints["charge_near"] = True
         if re.search(r"\bbefore\b.*\b(meeting|appointment)\b", t):
             constraints["deadline"] = "@next_event_start"
         cands = [_c("find_charging", 1.0, "charging keywords", near=near)]
@@ -193,9 +201,31 @@ def parse_task(raw: str) -> Task:
         cands = [_c("windows", 1.0, "explicit windows", position=pos)]
 
     # 6. navigation ----------------------------------------------------------
-    if not cands and re.search(r"\b(take me|navigate|drive( me)?|go|head|directions|route|get me)\b", t):
+    if not cands and re.search(r"\b(traffic|congestion|jam|road conditions?)\b", t):
+        intent, explicit = "info_traffic", True
+        cands = [_c("info_traffic", 1.0, "live traffic question")]
+    if not cands and re.search(r"\b(how long|eta|arrival time|when (will|do|shall) (i|we) (arrive|get there|reach)|"
+                               r"how far (is it|to go)|time left)\b", t):
+        intent, explicit = "info_eta", True
+        cands = [_c("info_eta", 1.0, "arrival time question")]
+    if not cands and re.search(r"\b(running late|going to be late|will be late|i am late|behind schedule)\b", t):
+        intent, urgency = "ambiguous_need", "high"
+        cands = [_c("send_message", 0.45, "tell the meeting I am late", recipient="@next_event_people",
+                    text="I am running late"),
+                 _c("navigate", 0.30, "take the fastest route", destination="@current_destination",
+                    preference="fastest"),
+                 _c("info_eta", 0.25, "check the arrival time")]
+    if not cands and re.search(r"\b(tired|sleepy|drowsy|exhausted|fatigued|nodding off)\b", t):
+        intent = "ambiguous_need"
+        cands = [_c("find_poi", 0.40, "find a rest stop", category="rest_area", near="@current_route"),
+                 _c("find_poi", 0.35, "find a coffee shop", category="cafe", near="@current_route"),
+                 _c("chat", 0.25, "talk to keep you alert")]
+    if not cands and re.search(r"\b(take me|navigate|drive( me)?|go|head|directions|route|get me|destination|"
+                               r"instead)\b", t):
         intent = "navigate"
         explicit = True
+        if re.search(r"\b(change|switch|update|new)\b.*\bdestination\b|\binstead\b", t):
+            entities["destination_change"] = True
         if MEETING_REF.search(t):
             dest = "@next_event_location"
         else:
