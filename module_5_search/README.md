@@ -32,8 +32,13 @@ python -m module_5_search.compare      # A* vs UCS on every node pair
 | no_toll | 272 | 1.00 | 5.53 | 7.06 |
 | balanced | 272 | 1.00 | 5.70 | 8.50 |
 
+## Changing roads
+Closed roads are skipped by the graph and delays raise edge time, so UCS and A* reroute around them with no change to
+the algorithms; A* stays equal to UCS (tested on a closed road).
+
 ## Known limitations / TODO
-- [ ] Static edge speeds (traffic perturbation comes from module 1, not time-dependent routing).
+- [ ] Delays are per edge and static once set (no time-dependent routing).
 
 ## Log (newest first)
+- 2026-10-28 (problem-statement review): tests for closed and delayed roads; 13 tests.
 - 2026-10-28: graph, UCS, A*, route solver, comparison; 11 tests.
