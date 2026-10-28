@@ -1,6 +1,6 @@
 """Evaluate the NLU service against a labelled dataset (fix B6).
 
-Usage (server running on port 8000, from inside "LLM connection"):
+Usage (server running on port 8000, from inside module_2_nlu/llm_connection):
     python evaluation/evaluate.py [path/to/dataset.json]
 
 Defaults to data/test_dataset.json and falls back to data/nlu_dataset.json.
