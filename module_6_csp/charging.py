@@ -13,10 +13,15 @@ Hard constraints
     charge_useful      – target is above the state of charge on arrival
     reach_destination  – leg 2 energy <= charged energy - reserve
     deadline           – leg1 + charging + leg2 time <= time available
-    no_toll            – (only if required) neither leg uses a toll road
+    no_toll            – (only if the driver made it strict) neither leg uses a toll road
+    near               – (only if a "near X" anchor is given) station within near_radius_km of X
 
-Soft preferences (ranking among feasible solutions): total time, tolls,
-preferred network, price.
+Energy is model energy x consumption_factor, so a cautious battery belief (module 3)
+tightens the reach constraints.
+
+Soft preferences (ranking among feasible solutions): total time, tolls (heavier when
+the driver asked to avoid them), preferred network, price, distance to the anchor,
+and the probability that the station is actually free (module 3 belief).
 """
 from __future__ import annotations
 
@@ -24,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from contracts import FeasibilityResult, RouteOption
+from module_1_simulator.world import haversine_km
 from module_5_search import RouteSolver
 
 from .csp import CSP, SearchStats
@@ -44,6 +50,7 @@ CONSTRAINT_TEXT = {
     "reach_destination": "cannot reach the destination after charging",
     "deadline": "would miss the deadline",
     "no_toll": "route uses a toll road",
+    "near": "too far from the requested place",
     "excluded": "station was ruled out earlier (failed during execution)",
 }
 
@@ -58,7 +65,13 @@ class ChargingProblem:
     stations: list[dict[str, Any]]
     deadline_min: float | None = None          # minutes available from now
     reserve_pct: float = RESERVE_PCT
-    avoid_tolls: bool = False
+    avoid_tolls: bool = False                  # soft: prefer toll-free plans
+    avoid_tolls_strict: bool = False           # hard: never use a toll road
+    near: str | None = None                    # anchor node ("near my next appointment")
+    near_radius_km: float = 3.0
+    near_km: dict[str, float] = field(default_factory=dict)       # station id -> km to the anchor
+    consumption_factor: float = 1.0            # real / model energy (cautious belief from module 3)
+    availability: dict[str, float] = field(default_factory=dict)  # station id -> P(free on arrival)
     preferred_network: str | None = None
     features: tuple[str, ...] = REQUIRED_FEATURES
     desired_pct: int = 80                      # soft: preferred charge target
@@ -78,6 +91,12 @@ class ChargingProblem:
     def from_env(cls, env: Any, destination: str | None = None, deadline_min: float | None = None,
                  **kw: Any) -> "ChargingProblem":
         v = env.vehicle
+        near = env.resolve_node(kw.pop("near")) if kw.get("near") else kw.pop("near", None)
+        if near:
+            locs = env.state["locations"]
+            kw["near_km"] = {s["id"]: haversine_km(locs[s["node"]]["coords"], locs[near]["coords"])
+                             for s in env.state["stations"]}
+        kw["near"] = near
         return cls(origin=v["location"], destination=env.resolve_node(destination) if destination else None,
                    battery_pct=v["battery_pct"], capacity_kwh=v["battery_capacity_kwh"], connector=v["connector"],
                    stations=[dict(s) for s in env.state["stations"]], deadline_min=deadline_min,
@@ -95,6 +114,9 @@ class ChargingSolution:
     arrival_pct: float
     final_pct: float
     score: float
+
+    def short(self) -> str:
+        return f"{self.station['name']}, {self.total_min:.0f} min total"
 
     def summary(self) -> str:
         return (f"Charge at {self.station['name']} to {self.target_pct}% ({self.charge_min:.0f} min), "
@@ -165,7 +187,7 @@ class ChargingPlanner:
             if pb.origin != st[s]["node"] and leg1(s, r) is None:
                 return False
             return pb.destination is None or st[s]["node"] == pb.destination or leg2(s, r) is not None
-        arrival = lambda s, r: pb.battery_pct - self._m(leg1(s, r), "energy_kwh") / pb.capacity_kwh * 100
+        arrival = lambda s, r: pb.battery_pct - self._e(pb, leg1(s, r)) / pb.capacity_kwh * 100
 
         csp.add("tools_available", ("station",), lambda s: all(f in pb.features for f in REQUIRED_FEATURES))
         csp.add("connector", ("station",), lambda s: pb.connector in st[s]["connectors"])
@@ -176,24 +198,34 @@ class ChargingPlanner:
                 lambda s, r: routable(s, r) and arrival(s, r) >= pb.reserve_pct)
         csp.add("charge_useful", ("station", "target", "route"), lambda s, t, r: t > arrival(s, r))
         csp.add("reach_destination", ("station", "target", "route"),
-                lambda s, t, r: t - self._m(leg2(s, r), "energy_kwh") / pb.capacity_kwh * 100 >= pb.reserve_pct)
+                lambda s, t, r: t - self._e(pb, leg2(s, r)) / pb.capacity_kwh * 100 >= pb.reserve_pct)
         if pb.deadline_min is not None:
             csp.add("deadline", ("station", "target", "route"),
                     lambda s, t, r: self._total(pb, st[s], t, r) <= pb.deadline_min)
-        if pb.avoid_tolls:
+        if pb.near:
+            csp.add("near", ("station",), lambda s: pb.near_km.get(s, 1e9) <= pb.near_radius_km)
+        if pb.avoid_tolls_strict:
             csp.add("no_toll", ("station", "route"),
                     lambda s, r: not (self._m(leg1(s, r), "toll") or self._m(leg2(s, r), "toll")))
         return csp
 
+    def _e(self, pb: ChargingProblem, leg) -> float:
+        return self._m(leg, "energy_kwh") * pb.consumption_factor
+
     def _total(self, pb: ChargingProblem, station: dict[str, Any], t: int, r: str) -> float:
         l1, l2 = self._leg(pb.origin, station["node"], r), self._leg(station["node"], pb.destination, r)
-        arr = pb.battery_pct - self._m(l1, "energy_kwh") / pb.capacity_kwh * 100
+        arr = pb.battery_pct - self._e(pb, l1) / pb.capacity_kwh * 100
         return self._m(l1, "time_min") + charge_minutes(station, pb.capacity_kwh, arr, t) + self._m(l2, "time_min")
 
     def _score(self, pb: ChargingProblem, s: dict[str, Any], t: int, r: str) -> float:
         l1, l2 = self._leg(pb.origin, s["node"], r), self._leg(s["node"], pb.destination, r)
         score = 0.3 * self._total(pb, s, t, r)
-        score += 3.0 if (self._m(l1, "toll") or self._m(l2, "toll")) else 0.0
+        toll = self._m(l1, "toll") or self._m(l2, "toll")
+        score += (15.0 if pb.avoid_tolls else 3.0) if toll else 0.0
+        if pb.near:
+            score += 1.0 * pb.near_km.get(s["id"], 0.0)
+        if pb.availability:
+            score += 10.0 * (1.0 - pb.availability.get(s["id"], 1.0))
         if pb.preferred_network and s.get("network") != pb.preferred_network:
             score += 6.0
         score += 0.02 * s.get("price_per_kwh", 0) * (t / 100 * pb.capacity_kwh)
@@ -210,25 +242,26 @@ class ChargingPlanner:
         if out:
             expl = out[0].summary()
         else:
-            reasons = "; ".join(f"{r.route_id.removeprefix('via_')}: {r.notes}" for r in per_station)
-            expl = "No feasible charging plan. " + reasons
+            expl = "No feasible charging plan: " + concise_reasons(per_station)
         return ChargingResult(bool(out), out[0] if out else None, out, per_station, expl, stats)
 
     def _solution(self, pb: ChargingProblem, s: dict[str, Any], t: int, r: str) -> ChargingSolution:
         l1, l2 = self._leg(pb.origin, s["node"], r), self._leg(s["node"], pb.destination, r)
-        arr = pb.battery_pct - self._m(l1, "energy_kwh") / pb.capacity_kwh * 100
+        arr = pb.battery_pct - self._e(pb, l1) / pb.capacity_kwh * 100
         cm = charge_minutes(s, pb.capacity_kwh, arr, t)
-        final = t - self._m(l2, "energy_kwh") / pb.capacity_kwh * 100
+        final = t - self._e(pb, l2) / pb.capacity_kwh * 100
         path = (l1.path if l1 else [pb.origin]) + (l2.path[1:] if l2 else [])
         opt = RouteOption(
             id=f"via_{s['id']}", waypoints=[s["id"]] + ([pb.destination] if pb.destination else []),
             distance_km=round(self._m(l1, "distance_km") + self._m(l2, "distance_km"), 2),
             time_min=round(self._m(l1, "time_min") + self._m(l2, "time_min"), 1),
-            energy_kwh=round(self._m(l1, "energy_kwh") + self._m(l2, "energy_kwh"), 2),
+            energy_kwh=round(self._e(pb, l1) + self._e(pb, l2), 2),
             cost=round(self._score(pb, s, t, r), 2),
             metadata={"station_id": s["id"], "station_name": s["name"], "target_pct": t, "preference": r,
                       "charge_min": round(cm, 1), "path": path, "arrival_pct": round(arr, 1),
-                      "final_pct": round(final, 1)})
+                      "final_pct": round(final, 1), "toll": bool(self._m(l1, "toll") or self._m(l2, "toll")),
+                      "near_km": round(pb.near_km[s["id"]], 2) if pb.near else None,
+                      "p_available": pb.availability.get(s["id"]) if pb.availability else None})
         return ChargingSolution(s, t, r, opt, round(cm, 1), round(self._total(pb, s, t, r), 1), round(arr, 1),
                                 round(final, 1), round(self._score(pb, s, t, r), 2))
 
@@ -262,8 +295,21 @@ class ChargingPlanner:
         return out
 
 
+def concise_reasons(results: list[FeasibilityResult]) -> str:
+    """Group infeasible stations by their main reason: "3 stations: not enough battery ...; 1: ..."."""
+    groups: dict[str, int] = {}
+    for r in results:
+        if not r.feasible:
+            key = CONSTRAINT_TEXT.get(r.violated_constraints[0], r.violated_constraints[0]) \
+                if r.violated_constraints else "infeasible"
+            groups[key] = groups.get(key, 0) + 1
+    parts = sorted(groups.items(), key=lambda kv: -kv[1])
+    return "; ".join(f"{why} ({n} station{'s' if n > 1 else ''})" for why, n in parts) + "."
+
+
 def check_direct(env: Any, destination: str, deadline_min: float | None = None,
-                 reserve_pct: float = RESERVE_PCT, solver: RouteSolver | None = None) -> FeasibilityResult:
+                 reserve_pct: float = RESERVE_PCT, solver: RouteSolver | None = None,
+                 consumption_factor: float = 1.0) -> FeasibilityResult:
     """Can we drive straight to `destination` without charging?"""
     solver = solver or RouteSolver.from_env(env)
     d = env.resolve_node(destination)
@@ -272,7 +318,7 @@ def check_direct(env: Any, destination: str, deadline_min: float | None = None,
     if r is None:
         return FeasibilityResult(route_id="direct", feasible=False, violated_constraints=["route_exists"],
                                  notes=f"no route to {destination}")
-    left = v["battery_pct"] - r.energy_kwh / v["battery_capacity_kwh"] * 100
+    left = v["battery_pct"] - r.energy_kwh * consumption_factor / v["battery_capacity_kwh"] * 100
     viol = []
     if left < reserve_pct:
         viol.append("reach_destination")
