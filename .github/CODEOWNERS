@@ -1,0 +1,8 @@
+# Default reviewer for everything
+*  @mrinal4703
+
+# Module owners review through the maintainer until their GitHub usernames are added here, e.g.:
+# /module_1_simulator/   @ramesh-username
+/module_4_evpi/        @mrinal4703
+/contracts/            @mrinal4703
+/docs/                 @mrinal4703
