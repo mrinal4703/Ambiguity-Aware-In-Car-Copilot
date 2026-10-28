@@ -23,9 +23,25 @@ python -m pytest module_3_uncertainty
   "message Rahul that I'll be late" -> the Rahul who attends the next meeting; possessives ("my landlord") stripped.
   Every lookup is logged so the dashboard can show it.
 
+## Beliefs about the world (problem-statement review)
+`world_beliefs.py` keeps probabilistic beliefs, updated from observations while driving:
+- `StationBelief`: Beta over "station is free on arrival" (status reports, failures).
+- `BatteryBelief`: normal belief over real / model consumption; `p_reach` = P(arrive with the reserve);
+  a cautious 90 % quantile is passed to module 6 so plans tighten when the battery drains faster than expected.
+- `TravelTimeBelief` / `RoadBelief`: log-normal travel time per road and P(road congested), from traffic reports.
+- `WorldBelief` bundles them; `summary()` feeds the dashboard and the ETA (mean and 90 % arrival time).
+
+`preferences.py` learns from the driver's past choices: a Dirichlet per request type ("tea", "tired", ...) with the
+parser's prior as pseudo-counts, p(o | choices) = (a0 prior_o + n_o) / (a0 + N), a0 = 0.5. One odd choice does not
+flip the behaviour; two consistent ones let the copilot act without asking.
+
+`ContextResolver.next_events()` finds overlapping appointments; "my next appointment" then has two candidate
+destinations and the EVPI step asks which one.
+
 ## Known limitations / TODO
-- [ ] Context weights are hand-set, not learned.
+- [ ] Context weights are hand-set; only the choice preferences are learned.
 - [ ] Temperature is fitted on a small synthetic set.
 
 ## Log (newest first)
+- 2026-10-28 (problem-statement review): world beliefs (stations, battery, travel time, roads), preference learning, conflicting calendar; 17 tests.
 - 2026-10-28: belief builder, calibration, context resolver; 12 tests.

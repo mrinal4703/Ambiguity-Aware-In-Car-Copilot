@@ -93,10 +93,11 @@ def context_weight(goal: str, params: dict[str, Any], vehicle: dict[str, Any], d
 # ------------------------------------------------------------------ builder
 class BeliefBuilder:
     def __init__(self, resolver: ContextResolver, temperature: float = DEFAULT_TEMPERATURE,
-                 use_context_weights: bool = True):
+                 use_context_weights: bool = True, preferences: Any = None):
         self.resolver = resolver
         self.temperature = temperature
         self.use_context_weights = use_context_weights
+        self.preferences = preferences          # PreferenceModel: Bayesian prior from earlier choices
 
     def build(self, task, task_index: int = 0, parser_confidence: float = 0.9,
               parser_name: str = "rules", notes: list[str] | None = None) -> BeliefBundle:
@@ -111,11 +112,21 @@ class BeliefBuilder:
         driving = self.resolver.driving() if self.use_context_weights else {}
 
         grounded: list[tuple[str, dict[str, Any], float, dict[str, str]]] = []
+        options = [tool_name(c.goal, c.params) for c in task.candidates]
+        tool_prior: dict[str, float] = {}
+        for cand, p in zip(task.candidates, probs):
+            tool_prior[tool_name(cand.goal, cand.params)] = tool_prior.get(tool_name(cand.goal, cand.params), 0) + p
         for cand, p in zip(task.candidates, probs):
             w, why = (context_weight(cand.goal, cand.params, vehicle, driving)
                       if self.use_context_weights else (1.0, ""))
             if w != 1.0 and why:
                 reasons.append(f"{cand.goal} x{w:g} ({why})")
+            if self.preferences is not None and len(task.candidates) > 1:
+                tn = tool_name(cand.goal, cand.params)
+                pw = self.preferences.weight(task.text, tn, options, prior=tool_prior[tn])
+                if abs(pw - 1.0) > 1e-6:
+                    reasons.append(f"{tool_name(cand.goal, cand.params)} x{pw:.2f} (earlier choices)")
+                w *= pw
             for params, weight, labels in self._ground(cand.params, task.text):
                 grounded.append((cand.goal, params, p * w * weight, labels))
 
@@ -197,7 +208,8 @@ _GOAL_LABELS = {"find_poi": {"cafe": "find a tea/coffee shop", "rest_area": "fin
                              "pharmacy": "find a pharmacy", "hospital": "find a hospital"},
                 "find_charging": "find a charging stop", "reminder": "add a reminder", "navigate": "navigate there",
                 "climate": "adjust the AC", "windows": "open the windows", "send_message": "send a message",
-                "call_contact": "make a call", "media": "play media"}
+                "call_contact": "make a call", "media": "play media", "chat": "just talk to keep you alert",
+                "info_eta": "check the arrival time", "info_traffic": "check the traffic"}
 
 
 def _goal_label(goal: str, params: dict[str, Any]) -> str:
@@ -205,6 +217,8 @@ def _goal_label(goal: str, params: dict[str, Any]) -> str:
     lab = _GOAL_LABELS.get(goal, goal.replace("_", " "))
     if isinstance(lab, dict):
         return lab.get(params.get("category"), goal)
+    if goal == "navigate" and params.get("preference") == "fastest" and len(params) <= 2:
+        return "take the fastest route"
     if goal == "navigate" and params.get("destination"):
         return f"navigate to {params['destination'].replace('_', ' ')}"
     return lab
